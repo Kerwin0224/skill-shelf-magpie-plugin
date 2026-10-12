@@ -42,9 +42,9 @@ Replace the example path with the folder's actual location. Keep that folder in 
 
 ### 3. Open your shelf
 
-The plugin opens your browser at its actual address when it starts. It prefers `127.0.0.1:47822`; if another application is using that port, it automatically chooses a free one. No source-code changes or manual port settings are needed.
+The plugin starts quietly in the background by default, without opening a browser when Magpie starts, restarts or reloads the plugin. It prefers `127.0.0.1:47822`; if another application is using that port, it automatically chooses a free one. No source-code changes or manual port settings are needed.
 
-After closing the page, find **From plugins → Skill Shelf** in Magpie's sign-in / add-subscription screen and choose **打开 Skill Shelf** (Open Skill Shelf). The other button, **GitHub**, opens the [plugin repository](https://github.com/voidrinz/skill-shelf-magpie-plugin). Open settings from within the page; there is no separate settings launch button.
+Find **From plugins → Skill Shelf** in Magpie's sign-in / add-subscription screen and choose **打开 Skill Shelf** (Open Skill Shelf) to open the page, or reopen it after closing it. The other button, **GitHub**, opens the [plugin repository](https://github.com/voidrinz/skill-shelf-magpie-plugin). Open settings from within the page; there is no separate settings launch button.
 
 These entries reuse Magpie's plugin sign-in buttons. Magpie shows a method picker first, then still displays a sign-in prompt and verification-code field after either button is clicked. Skill Shelf does not require a login, API key or verification code. Cancel Magpie's sign-in dialog after the page opens; this does not close the workbench. Adding the GitHub entry does not remove this host UI limitation.
 
@@ -54,7 +54,7 @@ You can also open **`Skill Shelf.html`** in the plugin's data folder and click *
 
 ### Startup options (advanced)
 
-Normally no changes are needed. The plugin supports `open` (open the browser on startup, `true` by default), `port` (preferred port, `47822` by default, with automatic fallback) and `dataDir` (an absolute path to the shelf data). For example, disable automatic opening while keeping the manual button:
+Normally no changes are needed. The plugin supports `open` (open the browser on startup, `false` by default), `port` (preferred port, `47822` by default, with automatic fallback) and `dataDir` (an absolute path to the shelf data). Only an explicit `open: true` enables automatic opening. If an older configuration enabled it, disable it while keeping the manual button:
 
 ```sh
 magpie plugin options /absolute/path/to/skill-shelf-magpie-plugin '{"open":false,"port":47822}'
@@ -111,7 +111,7 @@ Make sure Magpie is running and the plugin is enabled. Open Magpie's Plugins pag
 
 ### What if the default port is already in use?
 
-It automatically moves to a free port without stopping the other application or using another shelf's data. Multiple Magpie processes loading the same shelf share one workbench. On restart, the plugin tries to keep the previous address; if that port is also occupied, it chooses another and opens the new address.
+It automatically moves to a free port without stopping the other application or using another shelf's data. Multiple Magpie processes loading the same shelf share one workbench. On restart, the plugin tries to keep the previous address; if that port is also occupied, it chooses another and updates the manual entry points without opening a browser by default.
 
 This does not require a graphical port setting in Magpie, editing source code or JSON, or running commands. Reopen `Skill Shelf.html` if you need the current address.
 
