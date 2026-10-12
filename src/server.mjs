@@ -1,0 +1,329 @@
+import http from 'node:http';
+import { randomBytes, timingSafeEqual, createHash } from 'node:crypto';
+import { readFile, realpath, stat } from 'node:fs/promises';
+import { resolve, relative, isAbsolute, extname } from 'node:path';
+import { execFile } from 'node:child_process';
+
+const MAX_BODY = 24 * 1024 * 1024;
+const TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.woff2': 'font/woff2',
+  '.ico': 'image/x-icon',
+};
+
+function httpError(status, message) {
+  return Object.assign(new Error(message), { status });
+}
+
+function headers(response) {
+  response.setHeader('Cache-Control', 'no-store');
+  response.setHeader('X-Content-Type-Options', 'nosniff');
+  response.setHeader('Referrer-Policy', 'no-referrer');
+  response.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  response.setHeader('X-Frame-Options', 'DENY');
+  response.setHeader('Content-Security-Policy', [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+  ].join('; '));
+}
+
+function json(response, status, value) {
+  response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  response.end(JSON.stringify(value));
+}
+
+async function body(request, limit = MAX_BODY) {
+  if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || '')) {
+    throw httpError(415, 'Use application/json for this operation.');
+  }
+  const length = Number(request.headers['content-length']);
+  if (Number.isFinite(length) && length > limit) throw httpError(413, 'Request is too large.');
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > limit) throw httpError(413, 'Request is too large.');
+    chunks.push(chunk);
+  }
+  try {
+    const value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();
+    return value;
+  } catch {
+    throw httpError(400, 'Request must contain a JSON object.');
+  }
+}
+
+function matchesToken(value, token) {
+  if (typeof value !== 'string') return false;
+  const bytes = Buffer.from(value);
+  const expected = Buffer.from(token);
+  return bytes.length === expected.length && timingSafeEqual(bytes, expected);
+}
+
+export async function openFolder(directory, { platform = process.platform, execute = execFile } = {}) {
+  const command = platform === 'darwin' ? 'open' : platform === 'win32' ? 'explorer.exe' : 'xdg-open';
+  await new Promise((accept, reject) => {
+    // Keep the validated directory as one argument, never as shell source.
+    execute(command, [directory], { shell: false, windowsHide: true }, (error) => {
+      if (error) reject(httpError(502, `Could not open the Skill folder: ${error.message}`));
+      else accept();
+    });
+  });
+}
+
+export async function startServer({ service, ai, assistant, skills, sync, port = 47822, webDir, allowedOrigins = [], opener = openFolder }) {
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw httpError(400, 'Invalid port.');
+  if (!service || !webDir) throw new Error('A service and web directory are required.');
+  const token = randomBytes(32).toString('hex');
+  const webRoot = await realpath(webDir);
+  const snapshot = await service.snapshot();
+  const profile = createHash('sha256').update(snapshot.dataDir).digest('hex');
+  let actualPort;
+
+  const server = http.createServer(async (request, response) => {
+    headers(response);
+    try {
+      const host = request.headers.host;
+      const hosts = [`127.0.0.1:${actualPort}`, `localhost:${actualPort}`];
+      if (!hosts.includes(host)) throw httpError(403, 'Only the local workbench host is allowed.');
+      const origins = [...hosts.map((value) => `http://${value}`), ...allowedOrigins];
+      if (request.headers.origin && !origins.includes(request.headers.origin)) {
+        throw httpError(403, 'Cross-origin requests are not allowed.');
+      }
+      const url = new URL(request.url, `http://${host}`);
+      const api = url.pathname.startsWith('/api/') || url.pathname === '/_identity';
+      if (api && request.headers['sec-fetch-site'] === 'cross-site') {
+        throw httpError(403, 'Cross-site requests are not allowed.');
+      }
+      if (request.method === 'OPTIONS') throw httpError(403, 'Cross-origin requests are not allowed.');
+      if (request.method === 'GET' && url.pathname === '/_identity') {
+        return json(response, 200, { product: 'skill-shelf-magpie-plugin', profile, version: '0.1.0' });
+      }
+      if (request.method === 'GET' && url.pathname === '/api/session') {
+        return json(response, 200, { token });
+      }
+      if (url.pathname.startsWith('/api/')) {
+        if (!matchesToken(request.headers['x-shelf-token'], token)) {
+          throw httpError(403, 'Workbench session expired. Reload the page.');
+        }
+        const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+        const method = request.method;
+        const operation = `${method} ${parts.slice(0, 2).join('/')}`;
+        let result;
+        switch (operation) {
+          case 'GET api/state':
+            if (parts.length === 2) result = await service.snapshot();
+            break;
+          case 'GET api/workbench':
+            if (parts.length === 2) result = await service.workbenchSnapshot();
+            break;
+          case 'POST api/workbench':
+            if (parts.length === 3 && parts[2] === 'open-directory') result = await service.openWorkbenchDirectory(await body(request), opener);
+            break;
+          case 'GET api/skill':
+            if (parts.length === 2) result = await service.readSkill(url.searchParams.get('id'));
+            else if (parts.length === 3 && parts[2] === 'files') result = await service.skillFiles(url.searchParams.get('id'));
+            else if (parts.length === 3 && parts[2] === 'file') result = await service.readSkillFile(url.searchParams.get('id'), url.searchParams.get('path'));
+            break;
+          case 'POST api/skill':
+            if (parts.length === 3 && parts[2] === 'open-folder') result = await service.openSkillFolder(await body(request), opener);
+            break;
+          case 'POST api/rescan':
+            if (parts.length === 2) { await body(request); result = await service.rescan(); }
+            break;
+          case 'GET api/skills':
+            if (parts.length === 3 && parts[2] === 'status') {
+              if (!skills) throw httpError(503, 'Skill 服务暂不可用。');
+              result = skills.status();
+            }
+            break;
+          case 'POST api/skills':
+            if (parts.length === 3 && ['scan', 'update'].includes(parts[2])) {
+              if (!skills) throw httpError(503, 'Skill 服务暂不可用。');
+              const input = await body(request);
+              result = parts[2] === 'scan' ? await skills.scanUpdates() : await skills.update(input);
+            }
+            break;
+          case 'POST api/roots':
+            if (parts.length === 2) result = await service.addRoot(await body(request));
+            break;
+          case 'DELETE api/roots':
+            if (parts.length === 3) result = await service.removeRoot(parts[2]);
+            break;
+          case 'POST api/projects':
+            if (parts.length === 2) result = await service.addProject(await body(request));
+            break;
+          case 'DELETE api/projects':
+            if (parts.length === 3) result = await service.removeProject(parts[2]);
+            break;
+          case 'POST api/folders':
+            if (parts.length === 2) result = await service.createFolder(await body(request));
+            break;
+          case 'PATCH api/folders':
+            if (parts.length === 3) result = await service.updateFolder(parts[2], await body(request));
+            break;
+          case 'DELETE api/folders':
+            if (parts.length === 3) result = await service.deleteFolder(parts[2]);
+            break;
+          case 'PATCH api/organization':
+            if (parts.length === 2) result = await service.organize(await body(request));
+            break;
+          case 'PATCH api/finder':
+            if (parts.length === 2) result = await service.layout(await body(request));
+            break;
+          case 'GET api/ai':
+            if (parts.length === 3 && parts[2] === 'status') {
+              result = ai ? await ai.status() : { available: false, baseUrl: '', models: [], reason: 'Magpie AI bridge is not running.' };
+            } else if (parts.length === 3 && parts[2] === 'result') {
+              if (!ai) throw httpError(503, 'Magpie AI bridge is not running.');
+              result = await ai.results(url.searchParams.get('id'));
+            } else if (parts.length === 3 && parts[2] === 'annotations') {
+              if (!ai) throw httpError(503, 'Magpie AI bridge is not running.');
+              result = await ai.list();
+            } else if (parts.length === 3 && ['chat', 'conversations'].includes(parts[2])) {
+              if (!assistant) throw httpError(503, 'Skill 助手暂不可用。');
+              const id = url.searchParams.get('id');
+              result = parts[2] === 'chat' ? assistant.get(id) : id ? await assistant.getConversation(id) : await assistant.listConversations();
+            }
+            break;
+          case 'POST api/ai':
+            if (parts.length === 3 && ['generate', 'save', 'source-copy'].includes(parts[2])) {
+              if (!ai) throw httpError(503, 'Magpie AI bridge is not running.');
+              const input = await body(request);
+              const controller = new AbortController();
+              response.once('close', () => { if (!response.writableEnded) controller.abort(); });
+              result = parts[2] === 'generate' ? await ai.generate(input, { signal: controller.signal })
+                : parts[2] === 'source-copy' ? await ai.saveSourceCopy(input, { signal: controller.signal })
+                : await ai.save(input, { signal: controller.signal });
+            } else if ((parts.length === 3 && ['chat', 'conversations'].includes(parts[2])) || (parts.length === 4 && parts[2] === 'chat' && parts[3] === 'stop')) {
+              if (!assistant) throw httpError(503, 'Skill 助手暂不可用。');
+              const input = await body(request);
+              result = parts[2] === 'conversations' ? await assistant.saveConversation(input) : parts.length === 4 ? assistant.stop(input) : await assistant.start(input);
+            }
+            break;
+          case 'DELETE api/ai':
+            if (parts.length === 4 && parts[2] === 'conversations') {
+              if (!assistant) throw httpError(503, 'Skill 助手暂不可用。');
+              result = await assistant.deleteConversation(parts[3]);
+            }
+            break;
+          case 'GET api/sync':
+            if (parts.length === 3 && ['export', 'webdav'].includes(parts[2])) {
+              if (!sync) throw httpError(503, 'Skill Shelf sync is not running.');
+              if (parts[2] === 'export') {
+                response.setHeader('Content-Disposition', 'attachment; filename="skill-shelf-sync.json"');
+                result = await sync.exportDocument();
+              } else result = await sync.webdav.getStatus();
+            }
+            break;
+          case 'POST api/sync':
+            if (parts.length === 3 && ['webdav', 'test', 'preview', 'pull', 'upload', 'apply'].includes(parts[2])) {
+              if (!sync) throw httpError(503, 'Skill Shelf sync is not running.');
+              // Desktop v5 snapshots can exceed the ordinary Pack/API body limit.
+              const input = await body(request, parts[2] === 'preview' ? 100 * 1024 * 1024 + 1024 : MAX_BODY);
+              switch (parts[2]) {
+                case 'webdav': result = await sync.webdav.save(input); sync.invalidatePreviews(); break;
+                case 'test': await sync.webdav.test(); result = { connected: true }; break;
+                case 'preview': result = await sync.previewImport(input.document); break;
+                case 'pull': result = await sync.previewPull(); break;
+                case 'upload': result = await sync.previewUpload(); break;
+                case 'apply': result = await sync.apply(input); break;
+              }
+            }
+            break;
+          case 'POST api/packs':
+            if (parts.length === 2) result = await service.createPack(await body(request));
+            else if (parts.length === 3 && parts[2] === 'import') {
+              result = await service.importPack((await body(request)).document);
+            } else if (parts.length === 4 && parts[3] === 'skills') {
+              result = await service.importSkills(parts[2], await body(request));
+            }
+            break;
+          case 'PATCH api/packs':
+            if (parts.length === 3) result = await service.updatePack(parts[2], await body(request));
+            break;
+          case 'DELETE api/packs':
+            if (parts.length === 3) result = await service.deletePack(parts[2]);
+            break;
+          case 'GET api/packs':
+            if (parts.length === 4 && parts[3] === 'export') {
+              const document = await service.exportPack(parts[2]);
+              response.setHeader('Content-Disposition', 'attachment; filename="skill-shelf-pack.json"');
+              return json(response, 200, document);
+            }
+            break;
+          case 'DELETE api/managed':
+            if (parts.length === 3) result = await service.deleteManagedSkill(parts[2]);
+            break;
+          case 'POST api/deploy':
+            if (parts.length === 2) result = await service.deploy(await body(request));
+            break;
+          case 'POST api/deployments':
+            if (parts.length === 3 && parts[2] === 'remove') result = await service.removeDeployment(await body(request));
+            break;
+        }
+        if (result === undefined) throw httpError(404, 'Unknown workbench operation.');
+        return json(response, 200, result);
+      }
+      if (!['GET', 'HEAD'].includes(request.method)) throw httpError(405, 'Method not allowed.');
+      let raw;
+      try { raw = decodeURIComponent((request.url || '/').split('?')[0]); }
+      catch { throw httpError(400, 'Invalid path.'); }
+      if (raw.includes('\\') || raw.includes('\0') || raw.split('/').some((part) => part === '..' || part === '.')) {
+        throw httpError(400, 'Invalid path.');
+      }
+      const filename = raw === '/' ? 'index.html' : raw.replace(/^\/+/, '');
+      const candidate = resolve(webRoot, filename);
+      const rel = relative(webRoot, candidate);
+      if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw httpError(404, 'File not found.');
+      let file;
+      try {
+        file = await realpath(candidate);
+        const realRelative = relative(webRoot, file);
+        if (realRelative.startsWith('..') || isAbsolute(realRelative) || !(await stat(file)).isFile()) {
+          throw new Error();
+        }
+      } catch { throw httpError(404, 'File not found.'); }
+      const bytes = await readFile(file);
+      response.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream', 'Content-Length': bytes.length });
+      response.end(request.method === 'HEAD' ? undefined : bytes);
+    } catch (error) {
+      if (response.headersSent) { response.destroy(); return; }
+      const status = Number.isInteger(error.status) && error.status >= 400 && error.status <= 599 ? error.status : 500;
+      if (status === 500) console.error('Skill Shelf operation failed:', error.message);
+      json(response, status, { error: status === 500 ? 'Local operation failed. Check the plugin log.' : error.message });
+    }
+  });
+  server.requestTimeout = 120_000;
+  server.headersTimeout = 10_000;
+  await new Promise((accept, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', () => { server.off('error', reject); accept(); });
+  });
+  actualPort = server.address().port;
+  return {
+    server,
+    port: actualPort,
+    url: `http://127.0.0.1:${actualPort}`,
+    close: () => new Promise((accept, reject) => {
+      assistant?.close();
+      ai?.close?.();
+      skills?.close?.();
+      server.close((error) => error ? reject(error) : accept());
+      server.closeIdleConnections?.();
+    }),
+  };
+}
