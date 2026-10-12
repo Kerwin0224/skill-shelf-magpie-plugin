@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { AIBridge, annotationSource } from '../src/ai.mjs';
 import { ShelfService } from '../src/domain.mjs';
+import { USER_AGENT } from '../src/version.mjs';
 import { createFixture } from '../scripts/test-fixtures.mjs';
 
 const RESULT_TEXT = '整理可靠来源，并保留引用依据。';
@@ -73,7 +74,7 @@ test('AI discovers real text model metadata without inference or credentials', a
   assert.equal(shelf.calls.length, 2);
   for (const call of shelf.calls) {
     assert.equal(call.headers.authorization, 'Bearer magpie-skill-shelf');
-    assert.equal(call.headers['user-agent'], 'skill-shelf/0.1.0');
+    assert.equal(call.headers['user-agent'], USER_AGENT);
     assert.equal(call.headers.origin, undefined);
   }
   assert.equal(await readFile(path.join(shelf.dataDir, 'state.json'), 'utf8'), stateBefore);

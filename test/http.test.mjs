@@ -8,6 +8,7 @@ import { AIBridge } from '../src/ai.mjs';
 import { SyncService } from '../src/sync.mjs';
 import { WebDavSyncService } from '../src/webdav.mjs';
 import { startServer, openFolder } from '../src/server.mjs';
+import { VERSION } from '../src/version.mjs';
 import { createFixture, MOCK_SUMMARY, MOCK_TRANSLATION } from '../scripts/test-fixtures.mjs';
 
 async function setup(t, { gateway = false, opener } = {}) {
@@ -212,7 +213,9 @@ test('HTTP identity, static assets and non-cacheable authenticated snapshot', as
   const shelf = await setup(t);
   const identity = await fetch(`${shelf.base}/_identity`);
   assert.equal(identity.status, 200);
-  assert.equal((await identity.json()).product, 'skill-shelf-magpie-plugin');
+  const details = await identity.json();
+  assert.equal(details.product, 'skill-shelf-magpie-plugin');
+  assert.equal(details.version, VERSION);
   const index = await fetch(`${shelf.base}/`);
   assert.equal(index.status, 200);
   assert.match(await index.text(), /Fixture workbench/);

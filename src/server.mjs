@@ -3,6 +3,7 @@ import { randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { resolve, relative, isAbsolute, extname } from 'node:path';
 import { execFile } from 'node:child_process';
+import { VERSION } from './version.mjs';
 
 const MAX_BODY = 24 * 1024 * 1024;
 const TYPES = {
@@ -110,7 +111,7 @@ export async function startServer({ service, ai, assistant, skills, sync, port =
       }
       if (request.method === 'OPTIONS') throw httpError(403, 'Cross-origin requests are not allowed.');
       if (request.method === 'GET' && url.pathname === '/_identity') {
-        return json(response, 200, { product: 'skill-shelf-magpie-plugin', profile, version: '0.1.0' });
+        return json(response, 200, { product: 'skill-shelf-magpie-plugin', profile, version: VERSION });
       }
       if (request.method === 'GET' && url.pathname === '/api/session') {
         return json(response, 200, { token });

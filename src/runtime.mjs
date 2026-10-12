@@ -11,9 +11,10 @@ import { SkillOperations } from './skill-operations.mjs';
 import { SyncService } from './sync.mjs';
 import { WebDavSyncService } from './webdav.mjs';
 import { startServer } from './server.mjs';
+import { VERSION } from './version.mjs';
 
 export const PRODUCT = 'skill-shelf-magpie-plugin';
-export const VERSION = '0.1.0';
+export { VERSION };
 export const DEFAULT_PORT = 47822;
 
 export function defaultMagpieDir(home = homedir()) {

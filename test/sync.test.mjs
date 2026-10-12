@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { ShelfService } from '../src/domain.mjs';
 import { SyncService } from '../src/sync.mjs';
+import { VERSION } from '../src/version.mjs';
 import { parseSyncDocument, managedFilesHash, skillFingerprint, MAX_FILE_BYTES } from '../src/sync-format.mjs';
 
 const clone = value => structuredClone(value);
@@ -51,6 +52,7 @@ test('v5 roundtrip synchronizes installed metadata, independent duplicate copies
   await f.service.createFolder({ name: 'Nested', scopeId: 'pack:default', parentId: empty.id, color: '#334455' });
   const document = await f.sync.exportDocument();
   assert.equal(document.version, 5);
+  assert.equal(document.source.appVersion, VERSION);
   assert.notEqual(document.managedSkills[0].copyId, document.managedSkills[1].copyId);
   assert.deepEqual(parseSyncDocument(JSON.stringify(document)), document);
   assert(!JSON.stringify(document).includes(f.root));

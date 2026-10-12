@@ -7,6 +7,7 @@ import test from 'node:test';
 import { AssistantBridge } from '../src/assistant.mjs';
 import { AIBridge } from '../src/ai.mjs';
 import { ShelfService } from '../src/domain.mjs';
+import { USER_AGENT } from '../src/version.mjs';
 import { createFixture } from '../scripts/test-fixtures.mjs';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -77,6 +78,7 @@ test('assistant stays idle until an explicit send and streams only bounded selec
   assert.equal(shelf.assistant.get(job.id).status, 'running');
   const call = shelf.calls.find(call => call.path === '/v1/chat/completions');
   assert.equal(call.headers.authorization, 'Bearer magpie-skill-shelf');
+  assert.equal(call.headers['user-agent'], USER_AGENT);
   assert.equal(call.body.model, 'fixture/text');
   assert.equal(call.body.stream, true);
   assert.equal(call.body.tools, undefined);

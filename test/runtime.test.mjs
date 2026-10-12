@@ -5,7 +5,14 @@ import http from 'node:http';
 import { join } from 'node:path';
 import test from 'node:test';
 import { createFixture } from '../scripts/test-fixtures.mjs';
-import { connectWorkbench, peerAt, startWorkbench } from '../src/runtime.mjs';
+import { connectWorkbench, peerAt, startWorkbench, VERSION } from '../src/runtime.mjs';
+import { USER_AGENT } from '../src/version.mjs';
+
+test('runtime and request versions match the package release', async () => {
+  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(VERSION, manifest.version);
+  assert.equal(USER_AGENT, `skill-shelf/${manifest.version}`);
+});
 
 async function foreignServer(t, handler = (_request, response) => response.end('not Skill Shelf'), port = 0) {
   const server = http.createServer(handler);

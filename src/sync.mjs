@@ -5,6 +5,7 @@ import os from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { ShelfError } from './domain.mjs';
 import { AIBridge, annotationSource } from './ai.mjs';
+import { VERSION } from './version.mjs';
 import { parseSyncDocument, MAX_FILE_BYTES, MAX_LIBRARY_BYTES, MAX_FILES, assertPortablePath, assertPortableTree, managedFilesHash, skillFingerprint, portableKey } from './sync-format.mjs';
 
 const clone = value => structuredClone(value);
@@ -97,7 +98,7 @@ export class SyncService {
         deviceId = persisted.deviceId;
       }
     }
-    this.sourceValue = { deviceId, deviceName: os.hostname().slice(0, 128) || 'Skill Shelf', appVersion: '0.1.0' };
+    this.sourceValue = { deviceId, deviceName: os.hostname().slice(0, 128) || 'Skill Shelf', appVersion: VERSION };
     return clone(this.sourceValue);
   }
 

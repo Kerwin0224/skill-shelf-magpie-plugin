@@ -1,6 +1,6 @@
 {
   "name": "skill-shelf-magpie-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local-first Skills organization and independent Packs for Magpie, with a browser workbench.",
   "type": "module",
   "main": "./dist/plugin.mjs",
@@ -12,6 +12,7 @@
     "dist",
     "README.md",
     "README.en.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "license": "MIT",

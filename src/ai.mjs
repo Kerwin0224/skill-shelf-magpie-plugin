@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { parse as parseYaml } from 'yaml';
 import { ShelfError } from './domain.mjs';
 import { isDescriptionClearlyInTargetLanguage } from './description-language.mjs';
+import { USER_AGENT } from './version.mjs';
 
 const CONTEXT_LIMIT = 96 * 1024;
 const REPLY_LIMIT = 512 * 1024;
@@ -17,7 +18,7 @@ const LANGUAGES = new Map([
   ['de', 'German'], ['fr', 'French'], ['es', 'Spanish'],
   ['pt', 'Portuguese'], ['ru', 'Russian'],
 ]);
-const headers = { Authorization: 'Bearer magpie-skill-shelf', 'User-Agent': 'skill-shelf/0.1.0' };
+const headers = { Authorization: 'Bearer magpie-skill-shelf', 'User-Agent': USER_AGENT };
 const fail = (status, message) => { throw new ShelfError(status, message); };
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const digest = (text) => createHash('sha256').update(text).digest('hex');
