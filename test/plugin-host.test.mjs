@@ -70,7 +70,22 @@ async function eventually(check, description) {
   assert.fail(description);
 }
 
-test('built plugin loads in the actual Magpie Bun host without inventing a provider', { timeout: 30000 }, async (t) => {
+async function assertWorkbenchProvider(host) {
+  const providers = await host.rpc('providers', {});
+  assert.equal(providers.length, 1);
+  const provider = providers[0];
+  assert.equal(provider.id, 'skill-shelf');
+  assert.equal(provider.name, 'Skill Shelf');
+  assert.equal(provider.signedIn, false);
+  assert.deepEqual(provider.accounts, []);
+  assert.deepEqual(provider.models, []);
+  assert.deepEqual(provider.methods, [
+    { type: 'oauth', label: '\u6253\u5f00 Skill Shelf' },
+    { type: 'oauth', label: 'GitHub' },
+  ]);
+}
+
+test('built plugin exposes repeatable workbench and GitHub actions without creating accounts or models', { timeout: 30000 }, async (t) => {
   try { await access(hostPath); } catch { t.skip('Set MAGPIE_PLUGIN_HOST to the Magpie internal/plugin/host.js checkout'); return; }
   if (spawnSync(bun, ['--version']).error) { t.skip('Bun is required for the actual Magpie host integration'); return; }
   try { await access(path.join(repo, 'dist/plugin.mjs')); } catch { t.skip('Run pnpm build before testing the packaged Magpie plugin'); return; }
@@ -79,13 +94,13 @@ test('built plugin loads in the actual Magpie Bun host without inventing a provi
   const host = rpcHost(fixture);
   const { rpc } = host;
   t.after(async () => { await host.stop(); await fixture.cleanup(); });
-  const loaded = await rpc('init', {
+  const params = {
     authPath: path.join(fixture.magpieDir, 'plugin-auth.json'), directory: fixture.magpieDir, config: {},
     plugins: [{ spec: 'skill-shelf-magpie-plugin', target: path.join(repo, 'dist/plugin.mjs'), options: { port, open: false, dataDir: fixture.dataDir } }],
-  });
-  assert.deepEqual(loaded.plugins, [{ spec: 'skill-shelf-magpie-plugin' }]);
-  const providers = await rpc('providers', {});
-  assert.deepEqual(providers, []);
+  };
+  const loaded = await rpc('init', params);
+  assert.deepEqual(loaded.plugins, [{ spec: 'skill-shelf-magpie-plugin', provides: ['skill-shelf'] }]);
+  await assertWorkbenchProvider(host);
   const base = `http://127.0.0.1:${port}`;
   const identity = await fetch(`${base}/_identity`);
   assert.equal(identity.status, 200);
@@ -97,6 +112,18 @@ test('built plugin loads in the actual Magpie Bun host without inventing a provi
   const state = await (await fetch(`${base}/api/state`, { headers: { 'X-Shelf-Token': token } })).json();
   assert.equal(state.dataDir, fixture.dataDir);
   assert.equal(state.skills.length, 2);
+  for (const method of [0, 0, 1, 1]) {
+    const action = await rpc('authorize', { provider: 'skill-shelf', method });
+    assert.equal(action.url, method === 0 ? `${base}/` : 'https://github.com/voidrinz/skill-shelf-magpie-plugin');
+    assert.equal(action.method, 'code');
+    assert.match(action.instructions, /\u4e0d\u662f\u4f9b\u5e94\u5546\u767b\u5f55/);
+    assert.deepEqual(await rpc('callback', { session: action.session, code: 'not-a-login-code' }), { ok: false });
+    assert.equal((await (await fetch(`${base}/api/session`)).json()).token, token);
+  }
+  // Loading the cached module again must retain its actions, not return empty hooks.
+  assert.deepEqual(await rpc('init', params), { plugins: [...loaded.plugins, ...loaded.plugins] });
+  await assertWorkbenchProvider(host);
+  assert.equal((await rpc('authorize', { provider: 'skill-shelf', method: 0 })).url, `${base}/`);
   assert.equal(await readFile(path.join(fixture.magpieDir, 'plugin-auth.json'), 'utf8'), '{"sentinel":{"type":"api","key":"not-real-secret"}}\n');
   assert.equal(await readFile(path.join(fixture.magpieDir, 'preferences.json'), 'utf8'), '{"untouched":true}\n');
   assert.equal(await readFile(path.join(fixture.alpha, 'SKILL.md'), 'utf8'), fixture.alphaText);
@@ -156,14 +183,15 @@ test('duplicate Magpie hosts reuse one workbench, take over on exit and stop whe
     authPath: path.join(fixture.magpieDir, 'plugin-auth.json'), directory: fixture.magpieDir, config: {},
     plugins: [{ spec: repo, target: path.join(repo, 'dist/plugin.mjs'), options: { port, open: false, dataDir: fixture.dataDir } }],
   };
-  const expected = { plugins: [{ spec: repo }] };
+  const expected = { plugins: [{ spec: repo, provides: ['skill-shelf'] }] };
   assert.deepEqual(await first.rpc('init', params), expected);
   const base = `http://127.0.0.1:${port}`;
   const firstToken = (await (await fetch(`${base}/api/session`)).json()).token;
   assert.deepEqual(await second.rpc('init', params), expected);
   assert.equal((await (await fetch(`${base}/api/session`)).json()).token, firstToken);
-  assert.deepEqual(await first.rpc('providers', {}), []);
-  assert.deepEqual(await second.rpc('providers', {}), []);
+  await assertWorkbenchProvider(first);
+  await assertWorkbenchProvider(second);
+  assert.equal((await second.rpc('authorize', { provider: 'skill-shelf', method: 0 })).url, `${base}/`);
   await first.stop();
   await eventually(async () => {
     const session = await fetch(`${base}/api/session`, { signal: AbortSignal.timeout(300) });
@@ -175,7 +203,9 @@ test('duplicate Magpie hosts reuse one workbench, take over on exit and stop whe
   await eventually(async () => {
     try { await fetch(`${base}/_identity`, { signal: AbortSignal.timeout(300) }); return false; } catch { return true; }
   }, 'Disabling the plugin did not stop its loopback workbench.');
-  assert.deepEqual(await second.rpc('providers', {}), []);
+  await assert.rejects(second.rpc('authorize', { provider: 'skill-shelf', method: 0 }), /Enable Skill Shelf/);
+  await assert.rejects(second.rpc('authorize', { provider: 'skill-shelf', method: 1 }), /Enable Skill Shelf/);
+  await assertWorkbenchProvider(second);
   assert.equal(await readFile(path.join(fixture.magpieDir, 'plugin-auth.json'), 'utf8'), '{"sentinel":{"type":"api","key":"not-real-secret"}}\n');
   assert.equal(await readFile(path.join(fixture.alpha, 'SKILL.md'), 'utf8'), fixture.alphaText);
 });
@@ -210,7 +240,7 @@ test('real Magpie hosts share a fallback port, open its actual URL and recover i
     plugins: [{ spec: repo, target: path.join(repo, 'dist/plugin.mjs'), options: { port, open: true, dataDir: fixture.dataDir } }],
   };
   const loaded = await Promise.all([first.rpc('init', params), second.rpc('init', params)]);
-  assert.deepEqual(loaded, [{ plugins: [{ spec: repo }] }, { plugins: [{ spec: repo }] }]);
+  assert.deepEqual(loaded, [{ plugins: [{ spec: repo, provides: ['skill-shelf'] }] }, { plugins: [{ spec: repo, provides: ['skill-shelf'] }] }]);
   const endpointFile = path.join(fixture.dataDir, '.workbench.json');
   const endpoint = JSON.parse(await readFile(endpointFile, 'utf8'));
   assert.notEqual(endpoint.port, port);
@@ -218,7 +248,9 @@ test('real Magpie hosts share a fallback port, open its actual URL and recover i
   const session = (await (await fetch(`${base}/api/session`)).json()).token;
   for (const host of [first, second]) {
     assert.ok(host.events.some(event => event.event === 'log' && event.message.endsWith(base)));
-    assert.deepEqual(await host.rpc('providers', {}), []);
+    await assertWorkbenchProvider(host);
+    const action = await host.rpc('authorize', { provider: 'skill-shelf', method: 0 });
+    assert.equal(action.url, `${base}/`);
   }
   await eventually(async () => (await readFile(browserLog, 'utf8')).trim() === base, 'The browser was not opened once at the actual fallback URL.');
   const owner = endpoint.pid === first.child.pid ? first : second;
@@ -233,6 +265,7 @@ test('real Magpie hosts share a fallback port, open its actual URL and recover i
   }, 'The surviving Magpie host did not avoid the newly occupied previous port.');
   const newBase = `http://127.0.0.1:${replacement.port}`;
   assert.notEqual((await (await fetch(`${newBase}/api/session`)).json()).token, session);
+  assert.equal((await survivor.rpc('authorize', { provider: 'skill-shelf', method: 0 })).url, `${newBase}/`);
   await eventually(async () => (await readFile(browserLog, 'utf8')).trim().split('\n').join(',') === `${base},${newBase}`, 'The browser was not reopened at the replacement URL.');
   assert.ok(survivor.events.some(event => event.event === 'log' && event.message.endsWith(newBase)));
   assert.match(await readFile(path.join(fixture.dataDir, 'Skill Shelf.html'), 'utf8'), new RegExp(newBase));
