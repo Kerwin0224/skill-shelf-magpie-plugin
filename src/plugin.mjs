@@ -57,7 +57,7 @@ export default async function SkillShelfPlugin(input = {}, options = {}) {
       if (current.url !== connected.url) {
         current.url = connected.url;
         await input.client?.app?.log?.({ body: { service: 'skill-shelf', level: 'info', message: `Skill Shelf workbench: ${current.url}` } });
-        if (options.open !== false && !current.stopping) {
+        if (options.open === true && !current.stopping) {
           openOnce(current.url, dataDir).catch((error) => console.error(`Skill Shelf: ${error.message} Open ${current.url} manually.`));
         }
       }

@@ -8,6 +8,7 @@ import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { createFixture } from '../scripts/test-fixtures.mjs';
+import { VERSION } from '../src/version.mjs';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const hostPath = process.env.MAGPIE_PLUGIN_HOST || '/Users/laz/Coding/github/magpie/internal/plugin/host.js';
@@ -85,6 +86,11 @@ async function assertWorkbenchProvider(host) {
   ]);
 }
 
+test('the packaged options example keeps browser opening opt-in', async () => {
+  const manifest = JSON.parse(await readFile(path.join(repo, 'package.json'), 'utf8'));
+  assert.equal(manifest.magpie.options.open, false);
+});
+
 test('built plugin exposes repeatable workbench and GitHub actions without creating accounts or models', { timeout: 30000 }, async (t) => {
   try { await access(hostPath); } catch { t.skip('Set MAGPIE_PLUGIN_HOST to the Magpie internal/plugin/host.js checkout'); return; }
   if (spawnSync(bun, ['--version']).error) { t.skip('Bun is required for the actual Magpie host integration'); return; }
@@ -104,7 +110,9 @@ test('built plugin exposes repeatable workbench and GitHub actions without creat
   const base = `http://127.0.0.1:${port}`;
   const identity = await fetch(`${base}/_identity`);
   assert.equal(identity.status, 200);
-  assert.equal((await identity.json()).product, 'skill-shelf-magpie-plugin');
+  const details = await identity.json();
+  assert.equal(details.product, 'skill-shelf-magpie-plugin');
+  assert.equal(details.version, VERSION);
   const ui = await fetch(base);
   assert.equal(ui.status, 200);
   assert.match(await ui.text(), /<html|<!doctype/i);
@@ -210,7 +218,7 @@ test('duplicate Magpie hosts reuse one workbench, take over on exit and stop whe
   assert.equal(await readFile(path.join(fixture.alpha, 'SKILL.md'), 'utf8'), fixture.alphaText);
 });
 
-test('real Magpie hosts share a fallback port, open its actual URL and recover if that port is later occupied', { timeout: 30000 }, async t => {
+for (const open of [undefined, false, true]) test(`real Magpie hosts share, recover and restart a fallback workbench with open=${open ?? 'default'}`, { timeout: 30000 }, async t => {
   try { await access(hostPath); await access(path.join(repo, 'dist/plugin.mjs')); } catch { t.skip('A Magpie checkout and built plugin are required'); return; }
   if (spawnSync(bun, ['--version']).error) { t.skip('Bun is required for Magpie host lifecycle integration'); return; }
   if (process.platform === 'win32') { t.skip('The isolated browser-launcher fixture requires a POSIX shell'); return; }
@@ -225,10 +233,12 @@ test('real Magpie hosts share a fallback port, open its actual URL and recover i
   const env = { PATH: `${binDir}:${process.env.PATH}`, SHELF_BROWSER_LOG: browserLog };
   const first = rpcHost(fixture, env);
   const second = rpcHost(fixture, env);
+  let restarted;
   let squatter;
   t.after(async () => {
     await first.stop();
     await second.stop();
+    await restarted?.stop();
     for (const server of [foreign, squatter].filter(Boolean)) {
       await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
     }
@@ -237,8 +247,18 @@ test('real Magpie hosts share a fallback port, open its actual URL and recover i
   await writeFile(path.join(fixture.magpieDir, 'plugins.json'), JSON.stringify({ plugins: [{ spec: repo, off: false }] }));
   const params = {
     authPath: path.join(fixture.magpieDir, 'plugin-auth.json'), directory: fixture.magpieDir, config: {},
-    plugins: [{ spec: repo, target: path.join(repo, 'dist/plugin.mjs'), options: { port, open: true, dataDir: fixture.dataDir } }],
+    plugins: [{ spec: repo, target: path.join(repo, 'dist/plugin.mjs'), options: { port, ...(open === undefined ? {} : { open }), dataDir: fixture.dataDir } }],
   };
+  async function assertBrowserLaunches(urls) {
+    if (open === true) {
+      await eventually(async () => (await readFile(browserLog, 'utf8')).trim().split('\n').join(',') === urls.join(','), 'The opted-in browser did not open the actual workbench URLs.');
+    } else {
+      // Browser launches are asynchronous; allow a mistaken launch to reach the isolated stub.
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await assert.rejects(readFile(browserLog, 'utf8'), { code: 'ENOENT' });
+      await assert.rejects(access(path.join(fixture.dataDir, '.browser-opened')), { code: 'ENOENT' });
+    }
+  }
   const loaded = await Promise.all([first.rpc('init', params), second.rpc('init', params)]);
   assert.deepEqual(loaded, [{ plugins: [{ spec: repo, provides: ['skill-shelf'] }] }, { plugins: [{ spec: repo, provides: ['skill-shelf'] }] }]);
   const endpointFile = path.join(fixture.dataDir, '.workbench.json');
@@ -252,7 +272,10 @@ test('real Magpie hosts share a fallback port, open its actual URL and recover i
     const action = await host.rpc('authorize', { provider: 'skill-shelf', method: 0 });
     assert.equal(action.url, `${base}/`);
   }
-  await eventually(async () => (await readFile(browserLog, 'utf8')).trim() === base, 'The browser was not opened once at the actual fallback URL.');
+  await assertBrowserLaunches([base]);
+  await first.rpc('init', params);
+  assert.equal((await first.rpc('authorize', { provider: 'skill-shelf', method: 0 })).url, `${base}/`);
+  await assertBrowserLaunches([base]);
   const owner = endpoint.pid === first.child.pid ? first : second;
   const survivor = owner === first ? second : first;
   await owner.stop();
@@ -266,9 +289,15 @@ test('real Magpie hosts share a fallback port, open its actual URL and recover i
   const newBase = `http://127.0.0.1:${replacement.port}`;
   assert.notEqual((await (await fetch(`${newBase}/api/session`)).json()).token, session);
   assert.equal((await survivor.rpc('authorize', { provider: 'skill-shelf', method: 0 })).url, `${newBase}/`);
-  await eventually(async () => (await readFile(browserLog, 'utf8')).trim().split('\n').join(',') === `${base},${newBase}`, 'The browser was not reopened at the replacement URL.');
+  await assertBrowserLaunches([base, newBase]);
   assert.ok(survivor.events.some(event => event.event === 'log' && event.message.endsWith(newBase)));
   assert.match(await readFile(path.join(fixture.dataDir, 'Skill Shelf.html'), 'utf8'), new RegExp(newBase));
+  await survivor.stop();
+  restarted = rpcHost(fixture, env);
+  await restarted.rpc('init', params);
+  assert.equal((await restarted.rpc('authorize', { provider: 'skill-shelf', method: 0 })).url, `${newBase}/`);
+  assert.notEqual(JSON.parse(await readFile(endpointFile, 'utf8')).id, replacement.id);
+  await assertBrowserLaunches([base, newBase, newBase]);
   assert.equal(await (await fetch(`http://127.0.0.1:${port}`)).text(), 'foreign application');
   assert.equal(await (await fetch(base)).text(), 'new foreign application');
   await writeFile(path.join(fixture.magpieDir, 'plugins.json'), JSON.stringify({ plugins: [{ spec: repo, off: true }] }));
