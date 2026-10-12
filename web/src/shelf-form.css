@@ -1,0 +1,208 @@
+/* Skill Shelf UI primitives with the desktop's quiet-control overrides. */
+:root :is(.shelf-input[data-slot='input'], .shelf-textarea[data-slot='textarea'], .shelf-select-trigger[data-slot='select-trigger']) {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+  color: var(--foreground);
+  background: var(--ss-field-surface);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+  box-shadow: none;
+  outline: none;
+  transition: color 150ms, border-color 150ms, box-shadow 150ms, background-color 150ms;
+}
+:root .shelf-input[data-slot='input'] {
+  display: flex;
+  height: 36px;
+  padding: 6px 12px;
+  font-size: 16px;
+  user-select: text;
+}
+:root .shelf-textarea[data-slot='textarea'] {
+  display: flex;
+  min-height: 96px;
+  padding: 10px 12px;
+  resize: vertical;
+  user-select: text;
+}
+:root .shelf-select-trigger[data-slot='select-trigger'] {
+  display: flex;
+  height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  text-align: left;
+}
+:root :is(.shelf-input[data-slot='input'], .shelf-textarea[data-slot='textarea'])::placeholder {
+  color: var(--ss-placeholder);
+  opacity: 1;
+}
+:root :is(.shelf-input[data-slot='input'], .shelf-textarea[data-slot='textarea'])::selection {
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+:root .shelf-input[data-slot='input'][type='search']::-webkit-search-cancel-button {
+  display: none;
+  appearance: none;
+}
+:root .shelf-input[data-slot='input']::file-selector-button {
+  display: inline-flex;
+  height: 28px;
+  border: 0;
+  color: var(--foreground);
+  background: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+}
+:root :is(.shelf-input[data-slot='input'], .shelf-textarea[data-slot='textarea'], .shelf-select-trigger[data-slot='select-trigger']):hover:where(:not(:disabled):not(:focus-visible):not([aria-invalid='true'])) {
+  border-color: var(--ss-control-border-hover);
+}
+:root :is(.shelf-input[data-slot='input'], .shelf-textarea[data-slot='textarea'], .shelf-select-trigger[data-slot='select-trigger']):focus-visible {
+  border-color: var(--ring);
+  background: var(--ss-field-surface);
+  outline: 2px solid color-mix(in srgb, var(--ring) 35%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+:root :is(.shelf-input[data-slot='input'], .shelf-textarea[data-slot='textarea'], .shelf-select-trigger[data-slot='select-trigger'])[aria-invalid='true'] {
+  border-color: var(--destructive);
+}
+:root :is(.shelf-input[data-slot='input'], .shelf-textarea[data-slot='textarea'], .shelf-select-trigger[data-slot='select-trigger'])[aria-invalid='true']:focus-visible {
+  outline-color: color-mix(in srgb, var(--destructive) 35%, transparent);
+}
+:root :is(.shelf-input[data-slot='input'], .shelf-textarea[data-slot='textarea'], .shelf-select-trigger[data-slot='select-trigger']):disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+:root :is(.shelf-input[data-slot='input'], .shelf-select-trigger[data-slot='select-trigger']):disabled {
+  pointer-events: none;
+}
+:root .shelf-select-trigger[data-placeholder] { color: var(--muted-foreground); }
+/* Radix Value drops className, but forwards data-slot to its label span. */
+.shelf-select-trigger > [data-slot='select-value'] {
+  display: block;
+  flex: 1 1 0%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shelf-select-trigger > .shelf-select-icon {
+  position: static;
+  display: block;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  align-self: center;
+  margin: 0;
+  transform: none;
+  opacity: 0.5;
+  pointer-events: none;
+}
+.shelf-select-content {
+  position: relative;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  min-width: min(max(128px, var(--radix-select-trigger-width, 128px)), 420px, var(--radix-select-content-available-width, 100vw), calc(100vw - 16px));
+  width: max-content;
+  max-width: min(420px, var(--radix-select-content-available-width, 100vw), calc(100vw - 16px));
+  max-height: min(var(--radix-select-content-available-height, 100dvh), calc(100dvh - 16px));
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 12px;
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: var(--ss-shadow-menu);
+  outline: none;
+  animation: shelf-select-reveal 100ms ease-out;
+}
+.shelf-select-viewport { min-width: 0; min-height: 0; padding: 4px; overscroll-behavior: contain; }
+.shelf-select-item {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 8px 32px 8px 10px;
+  color: inherit;
+  font-family: var(--ss-font-body);
+  font-size: 14px;
+  line-height: 20px;
+  cursor: default;
+  user-select: none;
+  outline: none;
+}
+.shelf-select-item > span:last-child { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.shelf-select-item[data-highlighted] { color: var(--accent-foreground); background: var(--accent); }
+.shelf-select-item[data-disabled] { opacity: 0.5; }
+.shelf-select-indicator {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 8px;
+  display: flex;
+  width: 14px;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.shelf-select-indicator > span { display: flex; align-items: center; justify-content: center; }
+.shelf-select-indicator svg, .shelf-select-scroll-button svg {
+  display: block;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  transform: none;
+  pointer-events: none;
+}
+.shelf-select-scroll-button { display: flex; flex: 0 0 auto; align-items: center; justify-content: center; padding: 4px 0; }
+
+@media (min-width: 768px) { :root .shelf-input[data-slot='input'] { font-size: 14px; } }
+
+/* Preserve source context sizing rather than the old native-control rules. */
+.search-box .shelf-input[data-slot='input'] {
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+  box-shadow: none;
+}
+.search-box .shelf-input[data-slot='input']:focus-visible { outline: none; background: transparent; box-shadow: none; }
+:root .shelf-input.tag-editor-input { width: 150px; height: 28px; padding: 4px 7px; font-size: 11px; }
+:root .shelf-input.folder-name-input { width: 100%; height: 32px; padding: 6px 9px; font-size: 12px; }
+.managed-import-controls .shelf-select-trigger[data-slot='select-trigger'] { width: 140px; max-width: 100%; min-width: 0; height: 31px; padding-inline: 8px; font-size: 0.68rem; }
+.managed-import-controls .shelf-input[data-slot='input'] { font-size: 0.68rem; }
+:root .managed-pack-form :is(.shelf-input, .shelf-textarea) { min-width: 0; font-size: 0.7rem; }
+.workbench-workspace .workbench-agent-search .shelf-input { height: 31px; padding-left: 26px; padding-right: 31px; font-size: 0.7rem; }
+.settings-workspace .shelf-select-trigger.setting-select { width: 180px; min-width: 0; height: 36px; border-color: var(--ss-control-border); border-radius: var(--ss-radius-control); background: var(--ss-field-surface); padding: 6px 12px; font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 400; }
+.settings-workspace .shelf-input.setting-input { width: min(330px, 48vw); font-family: var(--ss-font-mono); font-size: 0.72rem; }
+.settings-workspace .shelf-select-trigger.ai-model-picker { width: min(330px, 48%); }
+.ai-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ai-controls > label { min-width: 0; }
+.ai-controls > label:last-child { width: min(180px, 100%); }
+.ai-controls .shelf-select-trigger[data-slot='select-trigger'] { width: 100%; min-width: 0; }
+.skill-inspector .shelf-select-trigger[data-slot='select-trigger'] { width: 100%; }
+@media (max-width: 760px) { .managed-import-controls .shelf-select-trigger[data-slot='select-trigger'] { width: 100%; } }
+@media (max-width: 700px) {
+  .ai-controls { grid-template-columns: minmax(0, 1fr); }
+  .ai-controls > label:last-child { width: 100%; }
+  .settings-workspace .shelf-select-trigger.ai-model-picker { width: 100%; }
+}
+@keyframes shelf-select-reveal { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .shelf-select-content { animation: none; }
+  :root :is(.shelf-input[data-slot='input'], .shelf-textarea[data-slot='textarea'], .shelf-select-trigger[data-slot='select-trigger']) { transition: none; }
+}
