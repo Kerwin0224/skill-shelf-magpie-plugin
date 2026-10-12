@@ -4,7 +4,7 @@
 
 给你的 AI Agent Skills 一个看得见、理得清的书架。在 Magpie 中安装，在浏览器中查看已有 Skills、整理文件夹和标签，再用 Packs 保存自己的常用组合。
 
-不需要另外安装 Skill Shelf 桌面客户端，即可开始使用。工作台目前使用简体中文界面。
+不需要另外安装 [Skill Shelf 桌面客户端](https://github.com/voidrinz/skill-shelf)，即可开始使用。
 
 ## 你可以用它做什么
 
@@ -44,9 +44,25 @@ magpie plugin add /absolute/path/to/skill-shelf-magpie-plugin
 
 插件启动后会自动用实际地址打开浏览器。默认使用 `127.0.0.1:47822`；如果端口已被其他程序占用，会自动选择空闲端口，不需要你修改代码或手动设置。
 
-以后需要重新打开，可以在 Magpie 中关闭再重新启用插件，也可以打开插件数据目录里的 **`Skill Shelf.html`**，点击**打开书架**。这个本地入口会随实际地址更新，可以收藏它；自动避让后的浏览器地址可能变化，不建议只收藏某个端口地址。Magpie 目前没有给这个插件提供专门的「打开工作台」按钮。
+关闭网页后，在 Magpie 的登录 / 添加订阅界面里找到**来自插件 → Skill Shelf**，选择**打开 Skill Shelf**即可重新打开；另一个 **GitHub** 按钮打开[插件仓库](https://github.com/voidrinz/skill-shelf-magpie-plugin)。设置从页面内进入，不另设打开入口。
+
+这两个入口复用了 Magpie 的插件登录按钮。Magpie 会先显示选择按钮，点击后仍会显示登录提示和验证码输入框，但 Skill Shelf 不需要登录、填写密钥或提交验证码。页面打开后请取消 Magpie 的登录窗口，不影响书架使用；增加 GitHub 入口不会消除这个宿主界面限制。
+
+也可以打开插件数据目录里的 **`Skill Shelf.html`**，点击**打开书架**。这个本地入口和 Magpie 的按钮都会使用实际地址；自动避让后的端口可能变化，不建议只收藏某个端口地址。
 
 **使用时请保持 Magpie 运行。** 如果不用桌面应用，可以保持 `magpie web` 运行；单次安装命令结束后，不会让工作台一直在线。
+
+### 启动选项（高级）
+
+通常不用修改。插件支持 `open`（启动时自动打开网页，默认 `true`）、`port`（首选端口，默认 `47822`，占用时自动避让）和 `dataDir`（书架数据目录，必须是绝对路径）。例如，关闭自动弹出网页但保留手动打开入口：
+
+```sh
+magpie plugin options /absolute/path/to/skill-shelf-magpie-plugin '{"open":false,"port":47822}'
+```
+
+将路径替换为安装插件时使用的本地目录；其他安装方式使用对应的安装标识。选项在插件宿主重新加载时应用。改变 `dataDir` 会使用另一份书架数据，不会自动迁移原数据。
+
+Magpie 目前只给网关中间件显示图形化的**选项**按钮；Skill Shelf 不处理网关请求，因此不会为了这个按钮注册空中间件。扫描来源、外观、AI 和同步等业务设置仍在**书架设置**中管理，不需要编辑启动选项。
 
 ## 第一次打开，先做这几件事
 
@@ -101,7 +117,7 @@ AI 只在你主动请求时调用。相关 Skill 文本、你的问题和对话�
 
 ### 为什么 Magpie 把它显示为供应商？
 
-Magpie 目前没有专门的 Skills 工作台分类，因此界面会使用默认的供应商标签。Skill Shelf 实际提供的是本地浏览器工作台，不会添加模型供应商、登录订阅账号，也不会拦截其他 Agent 的请求。
+Magpie 目前没有专门的 Skills 工作台分类，因此界面会使用默认的供应商标签。Skill Shelf 注册了一个没有模型的入口，借用插件登录按钮打开本地工作台；它不提供推理模型、保存登录账号，也不会拦截其他 Agent 的请求。
 
 ### 数据保存在哪里？
 
@@ -109,6 +125,6 @@ Magpie 目前没有专门的 Skills 工作台分类，因此界面会使用默�
 
 关闭浏览器或移除插件不会自动删除这些数据。手动清理前，请先备份重要 Packs。
 
-## 许可
+---
 
-[MIT](LICENSE)。随插件打包的第三方许可文本见 [THIRD_PARTY_LICENSES.txt](dist/THIRD_PARTY_LICENSES.txt)。
+[MIT](LICENSE) © [Rin](https://github.com/voidrinz)
