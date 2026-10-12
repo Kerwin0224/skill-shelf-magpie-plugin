@@ -111,7 +111,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [scope, setScope] = useState(initialRoute.scope);
   const [folderId, setFolderId] = useState<string | null>(initialRoute.folderId);
-  const [screen, setScreen] = useState<'shelf' | 'settings' | 'workbench'>(initialRoute.screen);
+  const [screen, setScreen] = useState<'shelf' | 'settings' | 'workbench'>(() => window.location.hash === '#settings' ? 'settings' : initialRoute.screen);
   const [search, setSearch] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
   const [defaultView] = useState<ViewMode>(() => stored('shelf-view', 'grid'));
@@ -142,6 +142,20 @@ export default function App() {
   const translatingRef = useRef(false);
 
   useEffect(() => { void request<Snapshot>('/state').then(setState).catch(error => setError(message(error))); }, []);
+  useEffect(() => {
+    const navigateSettingsLink = () => {
+      if (window.location.hash === '#settings') {
+        if (screen !== 'settings') setPreviousScreen(screen);
+        setScreen('settings'); setSettingsSection('general'); setDetail(null); setSelectedKeys([]); setSidebarOpen(false);
+      } else if (screen === 'settings') {
+        const route = initialPage();
+        setScreen(route.screen); setScope(route.scope); setFolderId(route.folderId);
+        setHistory({ scope: route.scope, entries: [route.folderId], index: 0 });
+      }
+    };
+    window.addEventListener('hashchange', navigateSettingsLink);
+    return () => window.removeEventListener('hashchange', navigateSettingsLink);
+  }, [screen]);
   useEffect(() => {
     if (!state) return;
     if (scope !== 'global' && !state.packs.some(pack => scope === `pack:${pack.id}`) && !state.projects.some(project => scope === `project:${project.id}`)) {

@@ -22,7 +22,7 @@ export function saveUiPreferences(value: UiPreferences) {
 export function initialPage(): { screen: 'workbench' | 'shelf'; scope: string; folderId: string | null } {
   const preferences = readUiPreferences();
   let hash = window.location.hash;
-  if (!hash && preferences.rememberLocation) {
+  if ((!hash || hash === '#settings') && preferences.rememberLocation) {
     try { hash = localStorage.getItem('shelf-last-location') || ''; } catch { /* Use the configured startup page. */ }
   }
   if (hash === '#workbench') return { screen: 'workbench', scope: 'global', folderId: null };
