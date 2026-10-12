@@ -12376,7 +12376,7 @@ async function SkillShelfPlugin(input = {}, options = {}) {
   if (options.open !== void 0 && typeof options.open !== "boolean") throw new Error("Skill Shelf open must be a boolean.");
   if (instance) {
     if (instance.dataDir !== dataDir || instance.port !== port) throw new Error("Only one Skill Shelf profile can run in each plugin host.");
-    return {};
+    return instance.hooks;
   }
   const settings = { dataDir, homeDir, magpieDir, port };
   const current = { ...settings, app: null, url: null, stopping: false, checking: null, timer: null };
@@ -12436,6 +12436,36 @@ async function SkillShelfPlugin(input = {}, options = {}) {
     current.app = null;
     if (instance === current) instance = void 0;
   }
+  current.hooks = {
+    auth: {
+      provider: "skill-shelf",
+      methods: [
+        { label: "\u6253\u5F00 Skill Shelf", url: null },
+        { label: "GitHub", url: "https://github.com/voidrinz/skill-shelf-magpie-plugin" }
+      ].map(({ label, url }) => ({
+        type: "oauth",
+        label,
+        async authorize() {
+          await ensure();
+          if (current.stopping || !current.url) throw new Error("Enable Skill Shelf in Magpie before opening the workbench.");
+          if (!url) await peerAt(Number(new URL(current.url).port), dataDir);
+          return {
+            url: url ?? `${current.url}/`,
+            instructions: "\u6B64\u5165\u53E3\u53EA\u6253\u5F00\u9875\u9762\uFF0C\u4E0D\u662F\u4F9B\u5E94\u5546\u767B\u5F55\u3002\u65E0\u9700\u5BC6\u94A5\u6216\u9A8C\u8BC1\u7801\uFF1B\u9875\u9762\u6253\u5F00\u540E\u53EF\u4EE5\u53D6\u6D88\u6B64\u7A97\u53E3\u3002",
+            method: "code",
+            callback: async () => ({ type: "failed" })
+          };
+        }
+      })),
+      async loader() {
+        return {};
+      }
+    },
+    async config(config) {
+      config.provider ??= {};
+      config.provider["skill-shelf"] = { name: "Skill Shelf", models: {} };
+    }
+  };
   try {
     await ensure();
   } catch (error2) {
@@ -12449,7 +12479,7 @@ async function SkillShelfPlugin(input = {}, options = {}) {
   }, 2e3);
   current.timer.unref?.();
   current.dispose = dispose;
-  return {};
+  return current.hooks;
 }
 var _internal = { dispose: async () => instance?.dispose() };
 export {
