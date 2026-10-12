@@ -1,0 +1,22 @@
+# Dependencies and local caches
+node_modules/
+.vite/
+.cache/
+
+# Generated test output (keep test source files in Git)
+coverage/
+test-results*/
+playwright-report*/
+blob-report/
+
+# Private development notes, not user-facing documentation
+/dev-notes/
+/docs/
+
+# Local environment, logs and OS files
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.log
+.DS_Store
