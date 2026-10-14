@@ -39,6 +39,7 @@ function viewOptions(value) {
   const sorts = ['kind', 'name', 'source', 'tags', 'update-status'];
   if (!sorts.includes(value.groupBy) || ![...sorts, 'none'].includes(value.sortBy) || !['ascending', 'descending'].includes(value.sortDirection) || !['canvas', 'columns', 'list'].includes(value.viewMode)) fail();
 }
+export { viewOptions as validateFinderViewOptions };
 export function assertPortablePath(value) {
   if (typeof value !== 'string' || value.length > 1024 || /[\\:*?"<>|\x00-\x1f]/.test(value)) fail('Unsafe synced Skill path.');
   const parts = value.split('/');
@@ -99,6 +100,7 @@ function validatePacks(packs) {
       groups.add(key);
       paths.add(folderKey([group.trim()]));
     }
+    if (pack.groups !== undefined) pack.groups = pack.groups.map(group => group.trim());
     for (const folder of pack.folders === undefined ? [] : array(pack.folders, 100)) {
       object(folder);
       folder.path = array(folder.path, 32).map(name => string(name, 64));
@@ -114,8 +116,12 @@ function validatePacks(packs) {
       if (entry.folderPath != null) {
         const names = array(entry.folderPath, 32).map(name => string(name, 64));
         if (!paths.has(folderKey(names))) fail('Missing synced Pack member folder.');
+        entry.folderPath = names;
       }
-      if (entry.group != null && !groups.has(portableKey(string(entry.group, 64)))) fail();
+      if (entry.group != null) {
+        entry.group = string(entry.group, 64);
+        if (!groups.has(portableKey(entry.group))) fail();
+      }
       if (entry.tags !== undefined) entry.tags = tags(entry.tags);
       if (entry.position !== undefined) entry.position = coordinates(entry.position);
     }

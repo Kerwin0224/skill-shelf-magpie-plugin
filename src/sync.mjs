@@ -24,6 +24,25 @@ const LIMITS = { file: MAX_FILE_BYTES, total: MAX_LIBRARY_BYTES };
 const sameNode = (left, right) => left.dev === right.dev && left.ino === right.ino && left.birthtimeMs === right.birthtimeMs;
 const sameTranslation = (left, right) => left?.content === right?.content && left?.sourceDescription === right?.sourceDescription;
 
+export function normalizePortablePreferences(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('Invalid portable preferences.');
+  const result = {};
+  const enums = { language: ['en', 'system', 'zh-CN'], theme: ['dark', 'light', 'system'], density: ['comfortable', 'compact'], libraryViewMode: ['canvas', 'columns', 'list'] };
+  for (const [key, values] of Object.entries(enums)) if (Object.hasOwn(value, key)) {
+    if (!values.includes(value[key])) fail(`Invalid portable preference: ${key}.`);
+    result[key] = value[key];
+  }
+  if (Object.hasOwn(value, 'sidebarCollapsed')) {
+    if (typeof value.sidebarCollapsed !== 'boolean') fail('Invalid portable preference: sidebarCollapsed.');
+    result.sidebarCollapsed = value.sidebarCollapsed;
+  }
+  for (const key of ['defaultAgents', 'focusedAgents']) if (Object.hasOwn(value, key)) {
+    if (!Array.isArray(value[key]) || value[key].length > 100 || value[key].some(name => typeof name !== 'string' || !name.trim() || name.length > 256 || name.includes('\0'))) fail(`Invalid portable preference: ${key}.`);
+    result[key] = [...new Set(value[key].map(name => name.trim()))];
+  }
+  return result;
+}
+
 async function readFiles(root, counter) {
   const rootStat = await fs.lstat(root);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || await fs.realpath(root) !== root) fail('Sync requires a real managed Skill directory.', 409);
@@ -102,13 +121,15 @@ export class SyncService {
     return clone(this.sourceValue);
   }
 
-  async persistIdentities() {
+  async persistIdentities(packId) {
     await this.service.initialize();
-    if (!this.service.state.managedSkills.some(skill => !skill.syncCopyId || !skill.syncIdentity)) return;
+    if (packId !== undefined) this.service.pack(packId);
+    if (!this.service.state.managedSkills.some(skill => (packId === undefined || skill.packId === packId) && (!skill.syncCopyId || !skill.syncIdentity))) return;
     await this.service.mutate(async () => {
       const counter = { bytes: 0, files: 0 };
       const locks = await this.sourceLocks();
       for (const skill of this.service.state.managedSkills) {
+        if (packId !== undefined && skill.packId !== packId) continue;
         if (!skill.syncCopyId) skill.syncCopyId = skill.id;
         if (!skill.syncIdentity) {
           const source = this.service.physicalSkills.find(item => item.path === skill.sourcePath);
@@ -203,15 +224,15 @@ export class SyncService {
     return result;
   }
 
-  async context() {
+  async context({ packId } = {}) {
     const service = this.service;
-    const document = { format: 'skill-shelf-metadata', version: 5, exportedAt: date(), skills: [], preferences: {}, packs: [], managedSkills: [], source: await this.source() };
+    const document = { format: 'skill-shelf-metadata', version: 5, exportedAt: date(), skills: [], preferences: packId === undefined ? normalizePortablePreferences(service.state.portablePreferences) : {}, packs: [], managedSkills: [], source: await this.source() };
     const installed = [];
     const managed = [];
     const warnings = [];
     const locks = await this.sourceLocks();
     const counter = { bytes: 0, files: 0 };
-    for (const skill of service.skills) {
+    for (const skill of packId === undefined ? service.skills : []) {
       const info = service.state.organization[skill.id] ?? { folderId: null, tags: [] };
       // Installed sources contribute metadata only; syncing never writes to an Agent's source tree.
       const read = await serviceReadIdentity(skill.path);
@@ -227,12 +248,13 @@ export class SyncService {
       const portable = {
         name: skill.name, identity, scope,
         ...(scope === 'project' ? { projectName: service.state.projects.find(project => `project:${project.id}` === skill.scopeId)?.name ?? '' } : {}),
-        tags: clone(info.tags), folder: this.folderPath(info.folderId).map(folder => ({ name: folder.name, color: folder.color, position: clone(service.state.finderPositions[`folder:${folder.id}`] ?? null) })),
-        position: clone(service.state.finderPositions[`skill:${skill.id}`] ?? null), descriptions: {}, translations: this.ai.portableTranslations(skill.id, source),
+        tags: clone(info.tags), folder: this.folderPath(info.folderId).map(folder => ({ name: folder.name, color: folder.color, position: clone(service.state.finderPositions[`folder:${folder.id}`] ?? null), ...(folder.viewOptions !== undefined ? { viewOptions: clone(folder.viewOptions) } : {}) })),
+        position: clone(service.state.finderPositions[`skill:${skill.id}`] ?? null), descriptions: clone(service.state.portableDescriptions?.[skill.id] ?? {}), translations: this.ai.portableTranslations(skill.id, source),
       };
       installed.push({ skill, portable, fingerprint: read.identity, source }); document.skills.push(portable);
     }
     for (const skill of service.state.managedSkills) {
+      if (packId !== undefined && skill.packId !== packId) continue;
       const files = await readFiles(skill.path, counter);
       const fingerprint = skillFingerprint(files);
       const portable = {
@@ -244,8 +266,11 @@ export class SyncService {
       managed.push({ skill, portable }); document.managedSkills.push(portable);
     }
     for (const pack of service.state.packs) {
+      if (packId !== undefined && pack.id !== packId) continue;
       const folders = service.state.folders.filter(folder => folder.scopeId === `pack:${pack.id}`);
-      document.packs.push({ name: pack.name, description: pack.description, sort: 'manual', folders: folders.map(folder => ({ path: this.folderPath(folder.id).map(item => item.name), color: folder.color, position: clone(service.state.finderPositions[`folder:${folder.id}`] ?? null) })), skills: managed.filter(entry => entry.skill.packId === pack.id).map(({ skill, portable }) => {
+      const viewOptions = clone(pack.viewOptions ?? {});
+      for (const folder of folders) if (folder.viewOptions !== undefined) viewOptions[folderKey(this.folderPath(folder.id).map(item => item.name))] = clone(folder.viewOptions);
+      document.packs.push({ name: pack.name, description: pack.description, sort: pack.sort ?? 'manual', ...(Object.keys(viewOptions).length ? { viewOptions } : {}), folders: folders.map(folder => ({ path: this.folderPath(folder.id).map(item => item.name), color: folder.color, position: clone(service.state.finderPositions[`folder:${folder.id}`] ?? null) })), skills: managed.filter(entry => entry.skill.packId === pack.id).map(({ skill, portable }) => {
         const info = service.state.organization[skill.id] ?? { folderId: null, tags: [] };
         return { copyId: portable.copyId, name: portable.name, identity: portable.identity, fingerprint: portable.fingerprint, folderPath: info.folderId === null ? null : this.folderPath(info.folderId).map(folder => folder.name), tags: clone(info.tags), position: clone(service.state.finderPositions[`skill:${skill.id}`] ?? null) };
       }) });
@@ -260,6 +285,18 @@ export class SyncService {
     return this.ai.withSync(async () => {
       await this.persistIdentities();
       return this.service.read(async () => (await this.context()).document);
+    });
+  }
+
+  async exportPack(id) {
+    return this.ai.withSync(async () => {
+      await this.persistIdentities(id);
+      return this.service.read(async () => {
+        this.service.pack(id);
+        const { document } = await this.context({ packId: id });
+        const { format, version, exportedAt, packs, managedSkills } = document;
+        return { format, version, exportedAt, skills: [], preferences: {}, packs, managedSkills };
+      });
     });
   }
 
@@ -289,6 +326,16 @@ export class SyncService {
       await this.persistIdentities();
       return this.service.read(async () => this.storeImport(document, await this.context()));
     });
+  }
+
+  async previewPack(input) {
+    const document = this.expandLegacyCopies(parseSyncDocument(typeof input === 'string' ? input : JSON.stringify(input)));
+    if (document.version !== 5 || document.packs?.length !== 1 || document.skills.length || !document.managedSkills) fail('Not a portable Skill Shelf v5 Pack document.');
+    const pack = document.packs[0];
+    if (document.managedSkills.some(skill => portableKey(skill.packName) !== portableKey(pack.name) || !pack.skills.some(member => memberMatches(member, skill)))) fail('Portable Pack contains an unrelated Skill.');
+    const preview = await this.previewImport({ format: document.format, version: 5, exportedAt: document.exportedAt, skills: [], preferences: {}, packs: document.packs, managedSkills: document.managedSkills });
+    if (this.service.state.packs.some(local => portableKey(local.name) === portableKey(pack.name))) preview.warnings.push(`同名 Pack「${pack.name}」已存在，将合并到该 Pack；不同的内容会在下方列出冲突，确认后才会写入。`);
+    return preview;
   }
 
   expandLegacyCopies(document) {
@@ -323,6 +370,13 @@ export class SyncService {
       const conflict = empty(local) ? null : this.choice(preview, `${key}:${field}`, skillName, field, local, incoming);
       operations.push({ conflict, action });
     };
+    const incomingPreferences = normalizePortablePreferences(document.preferences);
+    const localPreferences = context.document.preferences;
+    preview.preferences = clone(incomingPreferences);
+    for (const [key, value] of Object.entries(incomingPreferences)) add('preferences', '应用偏好', key, localPreferences[key], value, async () => {
+      this.service.state.portablePreferences ??= {};
+      this.service.state.portablePreferences[key] = clone(value);
+    });
     // Layout follows the incoming snapshot, but only after the user confirms the preview.
     const addPosition = (key, local, incoming) => {
       if (equal(local, incoming)) return;
@@ -358,6 +412,10 @@ export class SyncService {
           const id = item.id;
           add(`folder:${id}`, folder.name, 'color', item.color, folder.color, async () => { this.service.folder(id).color = folder.color; });
         }
+        if (folder.viewOptions !== undefined) {
+          const id = item.id;
+          add(`folder:${id}`, folder.name, 'viewOptions', item.viewOptions, folder.viewOptions, async () => { this.service.folder(id).viewOptions = clone(folder.viewOptions); });
+        }
         if (folder.position !== undefined) addPosition(`folder:${item.id}`, this.service.state.finderPositions[`folder:${item.id}`] ?? null, folder.position);
         parentId = item.id;
       }
@@ -382,6 +440,11 @@ export class SyncService {
       matchedInstalled.add(skill.id);
       const before = operations.length;
       organize(skill.id, skill.name, skill.scopeId, incoming);
+      for (const [language, description] of Object.entries(incoming.descriptions)) add(`skill:${skill.id}`, skill.name, `description:${language}`, portable.descriptions[language], description, async () => {
+        this.service.state.portableDescriptions ??= {};
+        this.service.state.portableDescriptions[skill.id] ??= {};
+        this.service.state.portableDescriptions[skill.id][language] = description;
+      });
       for (const [language, translation] of Object.entries(incoming.translations)) {
         if (translation.sourceDescription !== source.description) { staleTranslations++; continue; }
         const local = portable.translations[language];
@@ -397,9 +460,11 @@ export class SyncService {
       const pack = ensurePack(incoming.name, incoming.description);
       const before = operations.length;
       add(`pack:${pack.id}`, pack.name, 'description', pack.description, incoming.description, async () => { this.service.pack(pack.id).description = incoming.description; });
+      for (const field of ['sort', 'viewOptions']) if (incoming[field] !== undefined) add(`pack:${pack.id}`, pack.name, field, pack[field], incoming[field], async () => { this.service.pack(pack.id)[field] = clone(incoming[field]); });
       for (const folder of incoming.folders ?? (incoming.groups ?? []).map(name => ({ path: [name] }))) {
         const pathFolders = folder.path.map(name => ({ name }));
-        pathFolders[pathFolders.length - 1] = { name: folder.path.at(-1), ...folder };
+        const viewOptions = incoming.viewOptions?.[folderKey(folder.path)];
+        pathFolders[pathFolders.length - 1] = { name: folder.path.at(-1), ...folder, ...(viewOptions !== undefined ? { viewOptions } : {}) };
         ensureFolders(`pack:${pack.id}`, pathFolders);
       }
       if (operations.length !== before) changedPacks.add(pack.id);
@@ -408,7 +473,10 @@ export class SyncService {
     const used = new Set();
     for (const incoming of document.managedSkills ?? []) {
       const pack = ensurePack(incoming.packName ?? 'Default');
-      const candidates = context.managed.filter(entry => incoming.copyId ? entry.portable.copyId === incoming.copyId && portableKey(entry.portable.packName) === portableKey(incoming.packName ?? 'Default') : entry.skill.packId === pack.id && entry.portable.name === incoming.name && (incoming.identity ? entry.portable.identity === incoming.identity : entry.portable.fingerprint === incoming.fingerprint));
+      let candidates = context.managed.filter(entry => incoming.copyId ? entry.portable.copyId === incoming.copyId && portableKey(entry.portable.packName) === portableKey(incoming.packName ?? 'Default') : entry.skill.packId === pack.id && sameReference(entry.portable, incoming));
+      if (!candidates.length && document.managedSkills.filter(skill => portableKey(skill.packName ?? 'Default') === portableKey(incoming.packName ?? 'Default') && sameReference(skill, incoming)).length === 1) {
+        candidates = context.managed.filter(entry => entry.skill.packId === pack.id && sameReference(entry.portable, incoming));
+      }
       if (candidates.length > 1 || (candidates[0] && used.has(candidates[0].skill.id))) { preview.managedSkills.skipped.push(incoming.name); continue; }
       let skill = candidates[0]?.skill;
       if (!skill) {
@@ -513,6 +581,10 @@ export class SyncService {
           const previous = clone(incoming);
           operations.push({ conflict, action: () => { target[field] = clone(local); }, undo: () => { target[field] = clone(previous); } });
         };
+        const remotePreferences = normalizePortablePreferences(merged.preferences);
+        merged.preferences = remotePreferences;
+        preview.preferences = clone(context.document.preferences);
+        for (const [key, value] of Object.entries(context.document.preferences)) choose(merged.preferences, key, value, remotePreferences[key], 'preferences', '应用偏好');
         const installedFolderKey = (skill, names) => JSON.stringify([skill.scope, skill.projectName ?? null, folderKey(names)]);
         const cloudFolders = new Map();
         for (const skill of document.skills) skill.folder.forEach((folder, index) => {
@@ -523,7 +595,7 @@ export class SyncService {
           if (!remoteFolder) return clone(folder);
           return preserveFolder ? clone(remoteFolder) : { ...clone(remoteFolder), ...folder, position: clone(remoteFolder.position) };
         });
-        const folderDetails = folders => folders.map(folder => ({ name: folder.name, color: folder.color }));
+        const folderDetails = folders => folders.map(folder => ({ name: folder.name, color: folder.color, ...(folder.viewOptions !== undefined ? { viewOptions: folder.viewOptions } : {}) }));
         for (const local of context.document.skills) {
           const candidates = merged.skills.filter(skill => installedKey(skill) === installedKey(local));
           if (candidates.length > 1) { preview.skipped++; continue; }
@@ -532,6 +604,7 @@ export class SyncService {
           const target = candidates[0];
           choose(target, 'tags', local.tags, target.tags, installedKey(local), local.name);
           choose(target, 'folder', cloudLayout(local), target.folder, installedKey(local), local.name, (left, right) => equal(folderDetails(left), folderDetails(right)));
+          for (const [language, description] of Object.entries(local.descriptions)) choose(target.descriptions, language, description, target.descriptions[language], `${installedKey(local)}:description`, local.name);
           for (const [language, translation] of Object.entries(local.translations)) {
             const incoming = target.translations[language];
             if (sameTranslation(translation, incoming)) continue;
@@ -574,6 +647,10 @@ export class SyncService {
           const key = `pack:${portableKey(local.name)}`;
           if (!equal(local.description, target.description)) changedPacks.add(portableKey(local.name));
           choose(target, 'description', local.description, target.description, key, local.name);
+          for (const field of ['sort', 'viewOptions']) if (local[field] !== undefined) {
+            if (!equal(local[field], target[field])) changedPacks.add(portableKey(local.name));
+            choose(target, field, local[field], target[field], key, local.name);
+          }
           // Normalize legacy groups to folders while preserving desktop view preferences.
           if (target.groups) { target.folders = target.groups.map(name => ({ path: [name] })); delete target.groups; for (const member of target.skills) if (member.group !== undefined) { member.folderPath = member.group === null ? null : [member.group]; delete member.group; } }
           target.folders ??= [];
