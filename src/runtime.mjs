@@ -8,6 +8,10 @@ import { ShelfService } from './domain.mjs';
 import { AIBridge } from './ai.mjs';
 import { AssistantBridge } from './assistant.mjs';
 import { SkillOperations } from './skill-operations.mjs';
+import { AgentAccessBridge } from './agent-access-bridge.mjs';
+import { ProjectInstructionsService } from './project-instructions.mjs';
+import { SourceOperations } from './source-operations.mjs';
+import { DiscoveryService } from './discovery.mjs';
 import { SyncService } from './sync.mjs';
 import { WebDavSyncService } from './webdav.mjs';
 import { startServer } from './server.mjs';
@@ -71,12 +75,20 @@ export async function startWorkbench({ dataDir, homeDir = homedir(), magpieDir, 
   const ai = new AIBridge({ service, magpieDir: magpieDir || defaultMagpieDir(homeDir) });
   const assistant = new AssistantBridge({ service, ai });
   const skills = new SkillOperations({ service });
+  const access = new AgentAccessBridge(service);
+  const instructions = new ProjectInstructionsService(() => service.state.projects, join(dataDir, 'instruction-backups'));
+  const sources = new SourceOperations({ service });
+  const discovery = new DiscoveryService();
   const sync = new SyncService({ service, ai, webdav: new WebDavSyncService(join(dataDir, 'webdav-sync.json')) });
   const settings = {
     service,
     ai,
     assistant,
     skills,
+    access,
+    instructions,
+    sources,
+    discovery,
     sync,
     port,
     allowedOrigins: dev ? ['http://127.0.0.1:17131', 'http://localhost:17131'] : [],
@@ -93,6 +105,8 @@ export async function startWorkbench({ dataDir, homeDir = homedir(), magpieDir, 
     assistant.close();
     ai.close();
     skills.close();
+    sources.close();
+    discovery.close();
     throw error;
   }
 }
