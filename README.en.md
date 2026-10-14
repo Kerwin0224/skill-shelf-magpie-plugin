@@ -8,13 +8,16 @@ Install the plugin in [Magpie](https://usemagpie.ai), then use it in your browse
 
 ## What you can do
 
+- **Discover and install Skills.** Browse skills.sh rankings, trending, hot, official sources and topics; search, inspect and confirm global or registered-project installations.
+- **Manage Agent access.** Preview shared Skill connections using links or copies, update unchanged copies, repair managed links and disconnect safely.
+- **Edit project instructions.** Edit AGENTS.md and CLAUDE.md, or connect Claude to AGENTS.md without replacing its existing instructions.
 - **Find your Skills.** See Skills across your agents and projects, search your library, and check where each one is installed.
 - **Organize visually.** Use folders, tags, and icon, list, or column views. Read descriptions and preview files without opening an editor.
 - **Build your own Packs.** Make independent copies of useful Skills, group them by task, and export or deploy them when needed.
 - **Get help from AI.** Ask about a Skill, generate a description, or translate its description using models you already have in Magpie.
 - **Sync with Skill Shelf.** Exchange Packs and organization with the desktop app through WebDAV or a sync file.
 
-This plugin organizes **existing Skills**. It is not a Skill marketplace or an installer for new Skills. Install new Skills with your usual tools, then refresh the library here.
+The plugin follows the **Skill Shelf desktop v0.1.14** core feature baseline, including discovery, installation, Agent access, project instructions and independent Packs. Both editions use metadata sync format v5. Matching versions do not imply complete desktop parity; see the [alignment record](FEATURE_PARITY.md).
 
 ## Get started
 
@@ -73,6 +76,16 @@ Magpie currently shows its graphical **Options** button only for gateway middlew
 
 For supported installed Skills, **扫描更新** checks for upstream updates. Review and confirm before updating; unlike organizing or previewing, an update changes the installed files.
 
+## Discovery, Installation And Agent Access
+
+Open **Discover**, or use **Install from source** in Skills. Supported sources include GitHub, skills.sh links and absolute local directories. Recognized `npx skills add` command text is parsed, never executed as arbitrary shell input. Downloads run in an isolated directory; existing destinations are not silently overwritten. Installation and removal require confirmation.
+
+Choose **Manage access** in the Workbench to connect global shared Skills to an Agent. Direct shared readers need no deployment. External files are not adopted, overwritten or removed, and modified managed copies are protected. Every write uses an expiring preview. Pack deployments remain a separate workflow.
+
+In a project scope, open **Project instructions** to edit AGENTS.md and CLAUDE.md. Existing files are backed up before saving and checked for external edits. Symlinked or otherwise unsafe files remain read-only.
+
+Single-Pack exports now use desktop-compatible metadata v5, with import preview and conflict decisions. Legacy plugin Pack files remain importable. Portable preferences, custom descriptions and folder/Pack view options participate in synchronization; Magpie credentials are not imported.
+
 ## Working with Packs
 
 A Pack is your own collection of Skill copies: for example, “Writing”, “Frontend”, or “Code review”. Importing into a Pack does not move or change the original Skill.
@@ -89,13 +102,13 @@ AI runs only when you request it. The relevant Skill text, your question, and co
 
 Sync is optional and manual, not automatic:
 
-1. Configure the same WebDAV address and account in the plugin's **设置 → 云同步** and the Skill Shelf desktop app.
+1. Configure the same WebDAV address and account in the plugin's **设置 → 同步** and the Skill Shelf desktop app.
 2. Upload from the side with the data you want to share. Review the preview and any conflicts before confirming.
 3. Pull on the other side, review, and confirm the merge.
 
-You can also export and import a file through **云同步** if you do not use WebDAV. Use this rather than a standalone Pack export when exchanging your library organization with the desktop app.
+You can also export and import a file through **同步** if you do not use WebDAV. Use this rather than a standalone Pack export when exchanging your library organization with the desktop app.
 
-Sync includes Pack copies and matching installed Skills' folders, tags, layout, and description translations. It does **not** install the original Skills on another machine; install them there separately. Plugin sync is separate from Magpie's own sync.
+Sync includes Pack copies and matching installed Skills' folders, tags, layout, custom descriptions, translations and folder view settings. Portable theme, density and focused-Agent preferences merge per field. It does **not** install the original Skills on another machine; install them there separately. Plugin sync is separate from Magpie's own sync.
 
 Use a trusted WebDAV service: desktop sync files may contain AI credentials. The plugin also stores its WebDAV password locally without encryption.
 
@@ -103,7 +116,7 @@ Use a trusted WebDAV service: desktop sync files may contain AI credentials. The
 
 ### Will organizing change my installed Skills?
 
-No. Folders, tags, previews, and AI annotations leave the original Skill files unchanged. Confirmed updates and Pack deployments do write files, so review those actions before proceeding. The plugin does not execute scripts inside Skills.
+No. Folders, tags, previews, and AI annotations leave the original Skill files unchanged. Confirmed installations, updates, removals, Agent access, project instruction saves and Pack deployments do write files, so review those actions before proceeding. The plugin does not execute scripts inside Skills.
 
 ### Why is the page unavailable?
 
