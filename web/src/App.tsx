@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowDownToLine, ArrowLeft, ArrowRight, BookOpen, Boxes, Check, ChevronDown, ChevronRight,
-  Bot, Columns3, Copy, FileText, Folder as FolderIcon, FolderInput, FolderOpen, FolderPlus, Grid2X2, HardDrive,
+  Bot, Columns3, Compass, Copy, FileText, Folder as FolderIcon, FolderInput, FolderOpen, FolderPlus, Grid2X2, HardDrive,
   Globe2, Gauge, Layers3, Library, Link2, List, Loader2, Menu, MoreHorizontal, Package, PanelLeft, PanelLeftClose, Plus, RefreshCw,
-  PencilLine, Search, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Tag, Trash2, Upload, X,
+  PackagePlus, PencilLine, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Tag, Trash2, Upload, X,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -16,13 +16,20 @@ import './ai-assistant-sidebar.css';
 import ShelfSelect from './ShelfSelect';
 import { Input, Textarea } from './ShelfForm';
 import Workbench from './Workbench';
+import ShelfButton from './ShelfButton';
+import { t } from './desktop-ui';
+import DiscoverWorkspace from './DiscoverWorkspace';
+import SkillRemovalButton from './SkillRemovalButton';
+import { ProjectInstructionsButton } from './ProjectInstructions';
+import { SyncPreviewDialog, type Preview as SyncPreview } from './SyncSettings';
 import SettingsWorkspace, { type SettingsSection } from './SettingsWorkspace';
 import { initialPage, readUiPreferences, rememberPage, saveUiPreferences, type UiPreferences } from './ui-preferences';
 import { useAiPreferences } from './ai-preferences';
 import { translateDescriptions } from './translate-descriptions';
 import { getSkillTranslation, isLikelyIncompleteTranslation, selectSkillAnnotation } from './resolve-skill-description';
 import { defaultCanvasPosition, defaultFinderOptions, finderItems, movableItems, type FinderOptions } from './finder-state';
-import type { AiAnnotation, Folder, ManagedSkill, Pack, Position, Skill, Snapshot, Theme, ViewMode } from './types';
+import { fromPortableView, toPortableView, portableFolderKey } from './portable-view-options';
+import type { AiAnnotation, Folder, ManagedSkill, Pack, Position, Skill, Snapshot, Theme, ViewMode, PortablePreferences } from './types';
 
 type DialogState =
   | { kind: 'pack'; pack?: Pack }
@@ -103,24 +110,44 @@ export default function App() {
   const [uiPreferences, setUiPreferences] = useState(readUiPreferences);
   const aiPreferences = useAiPreferences();
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
-  const [previousScreen, setPreviousScreen] = useState<'shelf' | 'workbench'>(initialRoute.screen);
+  const [previousScreen, setPreviousScreen] = useState<'shelf' | 'workbench' | 'discover'>(initialRoute.screen);
   const [state, setState] = useState<Snapshot | null>(null);
   const [annotations, setAnnotations] = useState<AiAnnotation[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [accessApplying, setAccessApplying] = useState(false);
+  const [packPreview, setPackPreview] = useState<SyncPreview | null>(null);
+  const [packResolutions, setPackResolutions] = useState<Record<string, 'local' | 'incoming'>>({});
+  const packImportFocus = useRef<HTMLElement | null>(null);
   const [scope, setScope] = useState(initialRoute.scope);
   const [folderId, setFolderId] = useState<string | null>(initialRoute.folderId);
-  const [screen, setScreen] = useState<'shelf' | 'settings' | 'workbench'>(() => window.location.hash === '#settings' ? 'settings' : initialRoute.screen);
+  const [screen, setScreen] = useState<'shelf' | 'settings' | 'workbench' | 'discover'>(() => window.location.hash === '#settings' ? 'settings' : initialRoute.screen);
   const [search, setSearch] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
   const [defaultView] = useState<ViewMode>(() => stored('shelf-view', 'grid'));
   const [finderLocations, setFinderLocations] = useState<Record<string, FinderPreferences>>(() => Object.fromEntries(Object.entries(stored<Record<string, FinderPreferences>>('shelf-finder-locations', {})).map(([location, saved]) => [location, normalizeFinderPreferences(saved, defaultView)])));
   const finderLocation = `${scope}:${folderId || 'root'}`;
-  const preferences = useMemo(() => finderLocations[finderLocation] || finderPreferences(finderLocation, defaultView), [finderLocations, finderLocation, defaultView]);
+  const preferences = useMemo(() => {
+    const pack = state?.packs.find(item => scope === `pack:${item.id}`);
+    const folder = state?.folders.find(item => item.id === folderId);
+    const portable = folder?.viewOptions ?? pack?.viewOptions?.[portableFolderKey(state?.folders ?? [], folderId)] ?? (!folderId ? state?.rootViewOptions?.[scope] : undefined);
+    if (portable) return fromPortableView(portable);
+    const local = finderLocations[finderLocation] || finderPreferences(finderLocation, defaultView);
+    if (scope === 'global' && !folderId && state?.portablePreferences?.libraryViewMode) return { ...local, view: state.portablePreferences.libraryViewMode === 'canvas' ? 'grid' as const : state.portablePreferences.libraryViewMode };
+    if (pack?.sort && !finderLocations[finderLocation]) return { ...local, sort: pack.sort === 'manual' ? 'manual' as const : 'name' as const, direction: pack.sort === 'name-asc' ? 'asc' as const : 'desc' as const };
+    return local;
+  }, [finderLocations, finderLocation, defaultView, state, scope, folderId]);
   const view = preferences.view;
-  const setView = (next: ViewMode) => setFinderLocations(current => ({ ...current, [finderLocation]: { ...preferences, view: next, sort: next !== 'grid' && preferences.sort === 'manual' ? 'name' : preferences.sort } }));
-  const setFinderOptions = (options: FinderOptions) => setFinderLocations(current => ({ ...current, [finderLocation]: { ...options, view } }));
+  const saveFinderPreferences = (next: FinderPreferences) => {
+    setFinderLocations(current => ({ ...current, [finderLocation]: next }));
+    void request<Snapshot>('/view-options', 'PATCH', { scopeId: scope, folderId, viewOptions: toPortableView(next) }).then(setState).catch(error => setError(message(error)));
+  };
+  const setView = (next: ViewMode) => {
+    saveFinderPreferences({ ...preferences, view: next, sort: next !== 'grid' && preferences.sort === 'manual' ? 'name' : preferences.sort });
+    if (scope === 'global' && !folderId) savePortablePreferences({ libraryViewMode: next === 'grid' ? 'canvas' : next });
+  };
+  const setFinderOptions = (options: FinderOptions) => saveFinderPreferences({ ...options, view });
   const [theme, setTheme] = useState<Theme>(() => stored('shelf-theme', 'system'));
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const setSelected = (ids: string[]) => setSelectedKeys(ids.map(id => `skill:${id}`));
@@ -144,6 +171,7 @@ export default function App() {
   useEffect(() => { void request<Snapshot>('/state').then(setState).catch(error => setError(message(error))); }, []);
   useEffect(() => {
     const navigateSettingsLink = () => {
+      if (accessApplying) return;
       if (window.location.hash === '#settings') {
         if (screen !== 'settings') setPreviousScreen(screen);
         setScreen('settings'); setSettingsSection('general'); setDetail(null); setSelectedKeys([]); setSidebarOpen(false);
@@ -155,7 +183,7 @@ export default function App() {
     };
     window.addEventListener('hashchange', navigateSettingsLink);
     return () => window.removeEventListener('hashchange', navigateSettingsLink);
-  }, [screen]);
+  }, [screen, accessApplying]);
   useEffect(() => {
     if (!state) return;
     if (scope !== 'global' && !state.packs.some(pack => scope === `pack:${pack.id}`) && !state.projects.some(project => scope === `project:${project.id}`)) {
@@ -164,8 +192,29 @@ export default function App() {
   }, [state, scope, folderId]);
   useEffect(() => { if (state && screen !== 'settings') rememberPage(screen, scope, folderId); }, [state, screen, scope, folderId]);
   useEffect(() => { document.documentElement.dataset.density = uiPreferences.density; }, [uiPreferences.density]);
+  const savePortablePreferences = (patch: PortablePreferences) => {
+    void request<Snapshot>('/preferences', 'PATCH', patch).then(setState).catch(error => setError(message(error)));
+  };
+  const portableInitialized = useRef(false);
+  useEffect(() => {
+    if (!state) return;
+    const portable = state.portablePreferences ?? {};
+    if (!portableInitialized.current) {
+      portableInitialized.current = true;
+      if (!Object.keys(portable).length) savePortablePreferences({ theme, density: uiPreferences.density, focusedAgents: uiPreferences.focusedAgents, sidebarCollapsed, libraryViewMode: defaultView === 'grid' ? 'canvas' : defaultView });
+    }
+    if (portable.theme) setTheme(portable.theme);
+    if (portable.sidebarCollapsed !== undefined) setSidebarCollapsed(portable.sidebarCollapsed);
+    if (portable.density || portable.focusedAgents) {
+      setUiPreferences(current => {
+        const next = { ...current, ...(portable.density ? { density: portable.density } : {}), ...(portable.focusedAgents ? { focusedAgents: portable.focusedAgents } : {}) };
+        saveUiPreferences(next); return next;
+      });
+    }
+    if (portable.libraryViewMode) localStorage.setItem('shelf-view', JSON.stringify(portable.libraryViewMode === 'canvas' ? 'grid' : portable.libraryViewMode));
+  }, [JSON.stringify(state?.portablePreferences)]);
   const updateUiPreferences = (next: UiPreferences) => {
-    try { saveUiPreferences(next); setUiPreferences(next); }
+    try { saveUiPreferences(next); setUiPreferences(next); savePortablePreferences({ density: next.density, focusedAgents: next.focusedAgents }); }
     catch { setError('浏览器无法保存设置，请允许此页面使用本地存储后重试。'); }
   };
   useEffect(() => {
@@ -261,6 +310,7 @@ export default function App() {
     finally { setBusy(false); }
   };
   const navigate = (newScope: string, newFolder: string | null = null) => {
+    if (accessApplying) return;
     // As in the desktop Finder, a new folder inherits its current location's options.
     if (newScope === scope) {
       const nextLocation = `${newScope}:${newFolder || 'root'}`;
@@ -333,9 +383,15 @@ export default function App() {
   const openSkillFolder = (id: string) => { void request('/skill/open-folder', 'POST', { id }).catch(error => setError(message(error))); };
   const importFile = async (file?: File) => {
     if (!file) return;
-    if (file.size > 24 * 1024 * 1024) { setError('文件过大，请选择小于 24 MiB 的 Pack JSON 文件。'); return; }
+    if (file.size > 100 * 1024 * 1024) { setError('文件过大，请选择小于 100 MiB 的 Pack JSON 文件。'); return; }
     try {
-      const document = JSON.parse(await file.text()) as unknown;
+      const document = JSON.parse(await file.text()) as { format?: string };
+      if (document.format === 'skill-shelf-metadata') {
+        packImportFocus.current = window.document.activeElement as HTMLElement;
+        setError(''); setPackResolutions({});
+        setPackPreview(await request<SyncPreview>('/packs/preview', 'POST', { document }));
+        return;
+      }
       await act(() => mutate('/packs/import', 'POST', { document }), 'Pack 已导入');
     } catch (error) { setError(`无法读取 Pack：${message(error)}`); }
   };
@@ -364,8 +420,9 @@ export default function App() {
   if (!state) return <main className="boot-screen"><Brand /><h1>Skill Shelf</h1>{error ? <><div className="error-banner" role="alert">{error}</div><button className="primary-button" onClick={() => { setError(''); void request<Snapshot>('/state').then(setState).catch(error => setError(message(error))); }}>重新连接</button></> : <div className="loading-line"><Loader2 className="spin" size={16} />正在加载已安装的 Skill</div>}</main>;
 
   const clearSearch = () => { setSearch(''); setSearchDraft(''); setSelected([]); searchRef.current?.focus(); };
-  const openSettings = (section: SettingsSection = 'general') => { setPreviousScreen(screen === 'settings' ? previousScreen : screen); setSettingsSection(section); setScreen('settings'); setDetail(null); setSelected([]); setSidebarOpen(false); };
-  const openWorkbench = () => { setScreen('workbench'); setDetail(null); setSelected([]); setSidebarOpen(false); };
+  const openSettings = (section: SettingsSection = 'general') => { if (accessApplying) return; setPreviousScreen(screen === 'settings' ? previousScreen : screen); setSettingsSection(section); setScreen('settings'); setDetail(null); setSelected([]); setSidebarOpen(false); };
+  const openDiscover = () => { if (accessApplying) return; setScreen('discover'); setDetail(null); setSelected([]); setSidebarOpen(false); };
+  const openWorkbench = () => { if (accessApplying) return; setScreen('workbench'); setDetail(null); setSelected([]); setSidebarOpen(false); };
   const refreshWorkbench = async () => {
     if (busy) throw new Error('扫描正在进行，请稍后再试。');
     setBusy(true); setError('');
@@ -376,21 +433,22 @@ export default function App() {
 
   return <div className="app-shell desktop-shell" data-sidebar-collapsed={sidebarCollapsed}>
     <header className="desktop-status-bar">
-      <div className="status-sidebar-toggle">{screen === 'settings' ? <button className="status-back" onClick={() => setScreen(previousScreen)}><ArrowLeft size={14} />返回</button> : <><IconButton label="打开侧边栏" className="icon-button mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={16} /></IconButton><IconButton label={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'} className="icon-button desktop-sidebar-toggle" aria-controls="desktop-primary-navigation" aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed(!sidebarCollapsed)}><PanelLeft size={14} /></IconButton></>}</div>
-      <span className="status-title">{screen === 'settings' ? '设置' : screen === 'workbench' ? '工作台' : pack ? 'Packs' : 'Skills'}</span>
-      <div className="status-actions"><IconButton label="打开 AI 助手" aria-expanded={assistantOpen} onClick={() => assistantOpen ? setAssistantOpen(false) : openAssistant()}><Bot size={14} /></IconButton>{screen !== 'shelf' && <IconButton label="重新扫描" disabled={busy} onClick={() => void act(() => mutate('/rescan', 'POST'), '扫描完成', false)} data-testid="rescan"><RefreshCw size={14} className={busy ? 'spin' : ''} /></IconButton>}</div>
+      <div className="status-sidebar-toggle">{screen === 'settings' ? <button className="status-back" onClick={() => setScreen(previousScreen)}><ArrowLeft size={14} />返回</button> : <><IconButton label="打开侧边栏" className="icon-button mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={16} /></IconButton><IconButton label={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'} className="icon-button desktop-sidebar-toggle" aria-controls="desktop-primary-navigation" aria-expanded={!sidebarCollapsed} onClick={() => { setSidebarCollapsed(!sidebarCollapsed); savePortablePreferences({ sidebarCollapsed: !sidebarCollapsed }); }}><PanelLeft size={14} /></IconButton></>}</div>
+      <span className="status-title">{screen === 'settings' ? t('desktop.nav.settings') : screen === 'workbench' ? t('desktop.nav.workbench') : screen === 'discover' ? t('desktop.nav.discover') : pack ? t('desktop.nav.managed') : t('desktop.nav.library')}</span>
+      <div className="status-actions"><IconButton label="打开 AI 助手" aria-expanded={assistantOpen} onClick={() => assistantOpen ? setAssistantOpen(false) : openAssistant()}><Bot size={14} /></IconButton>{screen !== 'shelf' && <IconButton label="重新扫描" disabled={busy || accessApplying} onClick={() => void act(() => mutate('/rescan', 'POST'), '扫描完成', false)} data-testid="rescan"><RefreshCw size={14} className={busy ? 'spin' : ''} /></IconButton>}</div>
     </header>
     <div className="desktop-body" data-view={screen}>
     {sidebarOpen && <button className="sidebar-scrim" aria-label="关闭侧边栏" onClick={() => setSidebarOpen(false)} />}
     {screen !== 'settings' && <aside ref={sidebarRef} className={`navigation-panels${sidebarOpen ? ' sidebar-open' : ''}`} aria-label="主导航" aria-hidden={isMobile && !sidebarOpen} inert={isMobile && !sidebarOpen}>
       <div className="primary-sidebar" data-collapsed={sidebarCollapsed} id="desktop-primary-navigation">
         <a className="sidebar-brand" href="#" aria-label="Skill Shelf" onClick={event => { event.preventDefault(); openWorkbench(); }}><Brand compact={sidebarCollapsed && !isMobile} /></a>
-        <nav className="primary-navigation" aria-label="Skill Shelf 导航">
-          <button className={`primary-nav-item${screen === 'workbench' ? ' is-active' : ''}`} aria-current={screen === 'workbench' ? 'page' : undefined} title="工作台" onClick={openWorkbench}><Gauge size={18} /><span>工作台</span></button>
-          <button className={`primary-nav-item${screen === 'shelf' && !pack ? ' is-active' : ''}`} aria-current={screen === 'shelf' && !pack ? 'page' : undefined} title="Skills" onClick={() => navigate('global')}><Library size={18} /><span>Skills</span><small>{state.skills.length}</small></button>
-          <button className={`primary-nav-item${screen === 'shelf' && pack ? ' is-active' : ''}`} aria-current={screen === 'shelf' && pack ? 'page' : undefined} title="Packs" onClick={() => navigate('pack:default')}><Boxes size={18} /><span>Packs</span></button>
+        <nav className="primary-navigation" aria-label={t('desktop.nav.main')} inert={accessApplying}>
+          <button className={`primary-nav-item${screen === 'workbench' ? ' is-active' : ''}`} aria-current={screen === 'workbench' ? 'page' : undefined} title={t('desktop.nav.workbench')} onClick={openWorkbench}><Gauge size={18} /><span>{t('desktop.nav.workbench')}</span></button>
+          <button className={`primary-nav-item${screen === 'shelf' && !pack ? ' is-active' : ''}`} aria-current={screen === 'shelf' && !pack ? 'page' : undefined} title={t('desktop.nav.library')} onClick={() => navigate('global')}><Library size={18} /><span>{t('desktop.nav.library')}</span><small>{state.skills.length}</small></button>
+          <button className={`primary-nav-item${screen === 'discover' ? ' is-active' : ''}`} aria-current={screen === 'discover' ? 'page' : undefined} title={t('desktop.nav.discover')} onClick={openDiscover}><Compass size={18} /><span>{t('desktop.nav.discover')}</span></button>
+          <button className={`primary-nav-item${screen === 'shelf' && pack ? ' is-active' : ''}`} aria-current={screen === 'shelf' && pack ? 'page' : undefined} title={t('desktop.nav.managed')} onClick={() => navigate('pack:default')}><Boxes size={18} /><span>{t('desktop.nav.managed')}</span></button>
         </nav>
-        <nav className="sidebar-settings" aria-label="应用设置"><button className="primary-nav-item" title="设置" onClick={() => openSettings()}><Settings2 size={18} /><span>设置</span></button></nav>
+        <nav className="sidebar-settings" aria-label={t('desktop.nav.applicationSettings')} inert={accessApplying}><button className="primary-nav-item" title={t('desktop.nav.settings')} onClick={() => openSettings()}><Settings size={18} /><span>{t('desktop.nav.settings')}</span></button></nav>
       </div>
       {screen === 'shelf' && (scopeCollapsed && !isMobile ? <button className="scope-panel-rail" aria-label={pack ? '展开 Packs' : '展开安装范围'} aria-expanded="false" onClick={() => setScopeCollapsed(false)}><ChevronRight size={12} /></button> : <div ref={scopePanelRef} className="library-scope-panel" style={isMobile ? undefined : { width: scopeWidth }}>
         <div className="skill-drawer-resize-handle scope-panel-resize-handle" role="separator" aria-label="调整安装范围侧栏宽度" aria-orientation="vertical" aria-valuemin={scopeBounds().min} aria-valuemax={scopeBounds().max} aria-valuenow={Math.round(scopeWidth)} tabIndex={0} onDoubleClick={() => saveScopeWidth(200)} onPointerDown={resizeScope} onKeyDown={event => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) { event.preventDefault(); saveScopeWidth(event.key === 'Home' ? scopeBounds().min : event.key === 'End' ? scopeBounds().max : scopeWidth + (event.key === 'ArrowRight' ? 24 : -24)); } }}><span /></div>
@@ -403,14 +461,14 @@ export default function App() {
     <main className="workspace desktop-main">
       {error && <div className="error-banner workspace-banner" role="alert"><span>{error}</span><IconButton label="关闭错误提示" onClick={() => setError('')}><X size={16} /></IconButton></div>}
       {notice && <div className="toast" role="status"><Check size={16} />{notice}</div>}
-      {screen === 'settings' ? <SettingsWorkspace state={state} section={settingsSection} onSection={setSettingsSection} theme={theme} onTheme={setTheme} preferences={uiPreferences} onPreferences={updateUiPreferences} busy={busy} onSynced={setState}
+      {screen === 'settings' ? <SettingsWorkspace state={state} section={settingsSection} onSection={setSettingsSection} theme={theme} onTheme={next => { setTheme(next); savePortablePreferences({ theme: next }); }} preferences={uiPreferences} onPreferences={updateUiPreferences} busy={busy} onSynced={setState}
         onAddRoot={() => setDialog({ kind: 'root' })} onAddProject={() => setDialog({ kind: 'project' })}
         onRemoveRoot={root => setDialog({ kind: 'confirm', title: '移除扫描来源？', description: '将停止扫描这个目录，不会删除任何原始 Skill 文件。Pack 中的独立副本不受影响。', run: () => mutate(`/roots/${pathId(root.id)}`, 'DELETE') })}
         onRemoveProject={project => setDialog({ kind: 'confirm', title: `移除项目「${project.name}」？`, description: '仅断开项目的扫描与整理记录，不会删除项目或原始 Skills。', run: async () => { const fresh = await mutate(`/projects/${pathId(project.id)}`, 'DELETE'); if (scope === `project:${project.id}`) { setScope('global'); setFolderId(null); } return fresh; } })}
         onImport={() => fileRef.current?.click()} onExport={id => { const target = state.packs.find(pack => pack.id === id); if (target) void exportPack(target.id, target.name).catch(error => setError(message(error))); }} onNotice={setNotice} onError={setError}
-      /> : screen === 'workbench' ? <Workbench state={state} focusedAgents={uiPreferences.focusedAgents} onManageAgents={() => openSettings('skills')} onRefresh={refreshWorkbench} busy={busy} onError={setError} /> : <div className="shelf-page">
+      /> : screen === 'workbench' ? <Workbench state={state} focusedAgents={uiPreferences.focusedAgents} onManageAgents={() => openSettings('skills')} onRefresh={refreshWorkbench} busy={busy} onError={setError} onApplyingChange={setAccessApplying} /> : screen === 'discover' ? <DiscoverWorkspace state={state} onState={setState} onNotice={setNotice} /> : <div className="shelf-page">
         <div className="page-heading finder-page-header" data-slot="page-header"><div><h1>{title}</h1><p>{pack ? pack.description || '在这个集合包内独立管理分组、标签与 Skill 顺序。' : <span className="library-page-description"><span>像访达文件一样整理已录入的 Skill；文件夹和位置只保存在客户端本机。</span><span className="library-page-tip"><kbd>右键</kbd><span>画布空白处，可新建本地文件夹</span></span></span>}</p></div>
-          <div className="heading-actions">{pack ? <><div className="managed-pack-actions"><button className="text-button" onClick={() => void exportPack(pack.id, pack.name).catch(error => setError(message(error)))}><ArrowDownToLine size={14} />导出 Pack</button><button className="text-button" disabled={pack.id === 'default'} onClick={() => setDialog({ kind: 'pack', pack })}><PencilLine size={14} />编辑 Pack</button><IconButton label="删除 Pack" disabled={pack.id === 'default' || busy} onClick={deletePack}><Trash2 size={14} /></IconButton></div><button className="primary-button" onClick={() => setDialog({ kind: 'import', packId: pack.id })} disabled={busy} data-testid="add-to-pack"><FolderInput size={14} />导入已安装 Skill</button></> : operations.toolbar}</div>
+          <div className="heading-actions">{project && <ProjectInstructionsButton key={project.id} project={project} disabled={busy} onNotice={setNotice} />}{pack ? <><div className="managed-pack-actions"><button className="text-button" onClick={() => void exportPack(pack.id, pack.name).catch(error => setError(message(error)))}><ArrowDownToLine size={14} />导出 Pack</button><button className="text-button" disabled={pack.id === 'default'} onClick={() => setDialog({ kind: 'pack', pack })}><PencilLine size={14} />编辑 Pack</button><IconButton label="删除 Pack" disabled={pack.id === 'default' || busy} onClick={deletePack}><Trash2 size={14} /></IconButton></div><button className="primary-button" onClick={() => setDialog({ kind: 'import', packId: pack.id })} disabled={busy} data-testid="add-to-pack"><FolderInput size={14} />导入已安装 Skill</button></> : <>{operations.toolbar}<ShelfButton size="sm" disabled={busy || operations.busy} onClick={openDiscover}><PackagePlus />{t('desktop.library.add')}</ShelfButton></>}</div>
         </div>
         <div className="finder-navigation"><div className="finder-history-controls" role="group" aria-label="文件夹导航"><IconButton label="后退" disabled={history.index === 0} onClick={() => goHistory(-1)}><ArrowLeft size={13} /></IconButton><IconButton label="前进" disabled={history.index === history.entries.length - 1} onClick={() => goHistory(1)}><ArrowRight size={13} /></IconButton></div><nav className="breadcrumb" aria-label="文件夹位置"><button {...dragProps(null)} onClick={() => navigate(scope)}><HardDrive size={13} />{title}</button>{ancestors.map(item => <span className="crumb-part" key={item.id}><ChevronRight size={12} /><button {...dragProps(item.id)} onClick={() => navigate(scope, item.id)}>{item.name}</button></span>)}</nav><div className="toolbar-controls"><div className="view-switch library-view-switcher finder-view-switcher" role="group" aria-label="显示方式">{([{ value: 'grid', label: '图标视图', icon: Grid2X2 }, { value: 'list', label: '列表视图', icon: List }, { value: 'columns', label: '分栏视图', icon: Columns3 }] as const).map(item => <button key={item.value} aria-label={item.label} title={item.label} aria-pressed={view === item.value} className={view === item.value ? 'active' : ''} onClick={() => setView(item.value)}><item.icon size={14} /></button>)}</div><div id="finder-arrangement-controls" /><button className="finder-new-folder" onClick={() => openCreateFolder()} disabled={busy}><FolderPlus size={14} />新建文件夹</button></div></div>
         <div className="content-toolbar finder-toolbar"><form className="search-control" onSubmit={event => { event.preventDefault(); setSearch(searchDraft.trim()); setSelected([]); }}><label className="search-box"><Search size={14} /><Input ref={searchRef} aria-label={pack ? '搜索 Packs' : '搜索已安装的 Skill'} placeholder={pack ? '搜索当前 Pack' : '搜索名称、来源和标签'} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); clearSearch(); } }} value={searchDraft} onChange={event => { setSearchDraft(event.target.value); if (!event.target.value) clearSearch(); }} />{(searchDraft || search) && <IconButton label="清除搜索" onClick={clearSearch}><X size={14} /></IconButton>}</label><button className="secondary-button" type="submit"><Search size={14} />筛选</button></form><div className="library-toolbar-meta">{pack ? <span className="managed-skill-count">{query ? visibleSkills.length : scopeSkills.length} 个 Skill</span> : <span className="result-count">{visibleSkills.length + visibleFolders.length} {query ? '个 Skill' : '个项目'}</span>}</div>{!pack && operations.legend}</div>
@@ -421,7 +479,7 @@ export default function App() {
           onCommit={move => act(() => mutate('/finder', 'PATCH', move), 'Finder 整理已保存', false)} onView={setView} />}
 
       </div>}
-    {screen === 'shelf' && detail && <SkillInspector key={detail.id} skill={detail} onInstallation={openSkill} state={state} focusedAgents={uiPreferences.focusedAgents} busy={operations.busy} onSaved={onAiSaved} renderFiles={id => <SkillFilesPanel skillId={id} />} updateAction={!detailCanUpdate ? undefined : {
+    {screen === 'shelf' && detail && <SkillInspector removalAction={!('packId' in detail) ? <SkillRemovalButton skill={detail} disabled={busy || operations.busy} onState={fresh => { setState(fresh); setDetail(null); }} onNotice={setNotice} /> : undefined} key={detail.id} skill={detail} onInstallation={openSkill} state={state} focusedAgents={uiPreferences.focusedAgents} busy={operations.busy} onSaved={onAiSaved} renderFiles={id => <SkillFilesPanel skillId={id} />} updateAction={!detailCanUpdate ? undefined : {
       label: operations.updatingSkillIds.includes(detail.id) ? '正在更新…' : detailUpdateFresh ? '更新' : '检查并更新',
       disabled: operations.busy || (detailUpdateFresh && detailUpdateCheck?.status !== 'update-available'),
       running: operations.updatingSkillIds.includes(detail.id), onClick: () => void operations.requestUpdate([detail.id]),
@@ -432,6 +490,10 @@ export default function App() {
 
     <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" aria-label="导入 Pack JSON" onChange={event => { void importFile(event.target.files?.[0]); event.target.value = ''; }} />
     {operations.dialogs}
+    {packPreview && <SyncPreviewDialog preview={packPreview} origin="file" resolutions={packResolutions} unresolved={packPreview.conflicts.filter(conflict => !packResolutions[conflict.id]).length} working={busy} error={error} returnFocus={packImportFocus.current}
+      onClose={() => { setPackPreview(null); setError(''); }} onChoose={(id, value) => setPackResolutions(current => ({ ...current, [id]: value }))}
+      onChooseAll={value => setPackResolutions(Object.fromEntries(packPreview.conflicts.map(conflict => [conflict.id, value])))}
+      onApply={() => { void act(async () => { const result = await request<{ snapshot: Snapshot }>('/sync/apply', 'POST', { previewId: packPreview.id, resolutions: packResolutions }); return result.snapshot; }, 'Pack 已导入', false).then(success => { if (success) setPackPreview(null); }); }} />}
     {dialog && <ActionDialog key={dialog.kind + ('mode' in dialog ? dialog.mode : '')} dialog={dialog} state={state} scope={scope} folderId={folderId} busy={busy} error={error} onClose={() => setDialog(null)} onAction={act} onNavigate={navigate} />}
 
   </div>;

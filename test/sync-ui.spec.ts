@@ -28,7 +28,7 @@ async function showSidebar(page: Page) {
 async function openSync(page: Page) {
   await showSidebar(page);
   await page.getByRole('navigation', { name: '应用设置', exact: true }).getByRole('button', { name: '设置', exact: true }).click();
-  await page.getByRole('navigation', { name: '设置分类', exact: true }).getByRole('button', { name: '云同步', exact: true }).click();
+  await page.getByRole('navigation', { name: '设置分类', exact: true }).getByRole('button', { name: '同步', exact: true }).click();
   await expect(page.getByTestId('settings-sync')).toHaveAttribute('aria-busy', 'false');
 }
 

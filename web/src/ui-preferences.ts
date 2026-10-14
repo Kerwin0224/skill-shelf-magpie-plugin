@@ -19,14 +19,14 @@ export function saveUiPreferences(value: UiPreferences) {
   localStorage.setItem(UI_PREFERENCES_KEY, JSON.stringify(value));
 }
 
-export function initialPage(): { screen: 'workbench' | 'shelf'; scope: string; folderId: string | null } {
+export function initialPage(): { screen: 'workbench' | 'shelf' | 'discover'; scope: string; folderId: string | null } {
   const preferences = readUiPreferences();
   let hash = window.location.hash;
   if ((!hash || hash === '#settings') && preferences.rememberLocation) {
     try { hash = localStorage.getItem('shelf-last-location') || ''; } catch { /* Use the configured startup page. */ }
   }
   if (hash === '#workbench') return { screen: 'workbench', scope: 'global', folderId: null };
-  if (hash === '#discover') return { screen: 'shelf', scope: 'global', folderId: null };
+  if (hash === '#discover') return { screen: 'discover', scope: 'global', folderId: null };
   if (hash.startsWith('#skills:') || hash.startsWith('#packs:')) {
     try {
       const [page, folder] = hash.slice(1).split('/');
@@ -36,8 +36,8 @@ export function initialPage(): { screen: 'workbench' | 'shelf'; scope: string; f
   return { screen: preferences.startupPage === 'workbench' ? 'workbench' : 'shelf', scope: preferences.startupPage === 'packs' ? 'pack:default' : 'global', folderId: null };
 }
 
-export function rememberPage(screen: 'workbench' | 'shelf', scope: string, folderId: string | null) {
-  const hash = screen === 'workbench' ? '#workbench' : `${scope.startsWith('pack:') ? `#packs:${encodeURIComponent(scope.slice(5))}` : `#skills:${encodeURIComponent(scope)}`}${folderId ? `/${encodeURIComponent(folderId)}` : ''}`;
+export function rememberPage(screen: 'workbench' | 'shelf' | 'discover', scope: string, folderId: string | null) {
+  const hash = screen === 'workbench' ? '#workbench' : screen === 'discover' ? '#discover' : `${scope.startsWith('pack:') ? `#packs:${encodeURIComponent(scope.slice(5))}` : `#skills:${encodeURIComponent(scope)}`}${folderId ? `/${encodeURIComponent(folderId)}` : ''}`;
   window.history.replaceState(null, '', hash);
   try { localStorage.setItem('shelf-last-location', hash); } catch { /* Navigation does not require persistent browser storage. */ }
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { VERSION, DESKTOP_BASELINE } from '../../src/version.mjs';
 import { ArrowUpRight, BookOpen, Bot, Boxes, Check, Download, Eye, FolderPlus, HardDrive, Info, Keyboard, LoaderCircle, Monitor, Moon, Palette, Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Sparkles, Sun, Trash2, Upload, X } from 'lucide-react';
 import AiSettings from './AiSettings';
 import SyncSettings from './SyncSettings';
@@ -8,6 +9,7 @@ import { request } from './api';
 import type { Project, Root, Snapshot, Theme } from './types';
 import type { UiPreferences } from './ui-preferences';
 import type { WorkbenchSnapshot } from './workbench-types';
+import { t } from './desktop-ui';
 
 export type SettingsSection = 'general' | 'appearance' | 'shortcuts' | 'skills' | 'data' | 'sync' | 'about' | 'ai-provider' | 'ai-models' | 'ai-behavior';
 type Props = {
@@ -18,13 +20,13 @@ type Props = {
   onImport: () => void; onExport: (id: string) => void; onSynced: (snapshot: Snapshot) => void; onNotice: (text: string) => void; onError: (text: string) => void;
 };
 const applicationNavigation = [
-  { id: 'general', label: '通用', icon: SlidersHorizontal }, { id: 'appearance', label: '外观', icon: Palette },
-  { id: 'shortcuts', label: '快捷键', icon: Keyboard }, { id: 'skills', label: 'Skills 与 Agent', icon: HardDrive },
-  { id: 'sync', label: '云同步', icon: RefreshCw }, { id: 'about', label: '关于', icon: Info },
+  { id: 'general', label: t('desktop.settings.general'), icon: SlidersHorizontal }, { id: 'appearance', label: t('desktop.settings.appearance'), icon: Palette },
+  { id: 'shortcuts', label: t('desktop.settings.shortcuts'), icon: Keyboard }, { id: 'skills', label: t('desktop.settings.skillsCli'), icon: HardDrive },
+  { id: 'sync', label: t('desktop.sync.title'), icon: RefreshCw }, { id: 'about', label: t('desktop.settings.about'), icon: Info },
 ] as const;
 const aiNavigation = [
-  { id: 'ai-provider', label: '模型服务', icon: Bot }, { id: 'ai-models', label: '默认模型', icon: Boxes },
-  { id: 'ai-behavior', label: 'AI 行为', icon: Sparkles },
+  { id: 'ai-provider', label: t('desktop.settings.aiModelService'), icon: Bot }, { id: 'ai-models', label: t('desktop.settings.aiDefaultModels'), icon: Boxes },
+  { id: 'ai-behavior', label: t('desktop.settings.aiBehavior'), icon: Sparkles },
 ] as const;
 function Page({ title, status, children }: { title: string; status?: string; children: ReactNode }) {
   return <div className="settings-page"><header className="settings-page-header"><h2>{title}</h2>{status && <span className="is-success">{status}</span>}</header>{children}</div>;
@@ -137,7 +139,7 @@ export default function SettingsWorkspace(props: Props) {
             <div data-slot="dialog-footer"><span className="agent-focus-limit">最多关注 12 个 Agent</span><button type="button" className="primary-button" data-slot="button" data-size="sm" onClick={closeAgentDialog}>关闭</button></div><button type="button" className="settings-dialog-close" aria-label="关闭" onClick={closeAgentDialog}><X /></button>
           </dialog>}
         </Page>
-        : <Page title="关于"><section className="about-app-card" aria-label="关于这个应用"><div className="about-identity"><span className="about-mark" aria-hidden="true"><BookOpen /></span><div><h3>Skill Shelf</h3><p>版本 0.1.0 · Magpie</p><p>发现、整理和管理你的 Skill。</p></div></div></section><Section title="本地数据"><div className="privacy-card"><ShieldCheck /><div><strong>你的 Skill 书架保存在这台电脑上。</strong><p>Skill 列表、分组、标签和偏好设置保存在本机。</p></div></div></Section><div className="about-actions"><a className="secondary-button" data-slot="button" data-size="sm" href="https://skills.sh" target="_blank" rel="noreferrer">访问 skills.sh<ArrowUpRight /></a></div></Page>}
+        : <Page title="关于"><section className="about-app-card" aria-label="关于这个应用"><div className="about-identity"><span className="about-mark" aria-hidden="true"><BookOpen /></span><div><h3>Skill Shelf</h3><p>版本 {VERSION} · Magpie · 客户端基线 {DESKTOP_BASELINE}</p><p>发现、整理和管理你的 Skill。</p></div></div></section><Section title="本地数据"><div className="privacy-card"><ShieldCheck /><div><strong>你的 Skill 书架保存在这台电脑上。</strong><p>Skill 列表、分组、标签和偏好设置保存在本机。</p></div></div></Section><div className="about-actions"><a className="secondary-button" data-slot="button" data-size="sm" href="https://skills.sh" target="_blank" rel="noreferrer">访问 skills.sh<ArrowUpRight /></a></div></Page>}
     </div>
   </section>;
 }

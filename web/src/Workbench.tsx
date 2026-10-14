@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from 'react';
-import { ChevronDown, CircleAlert, Eye, FolderOpen, HardDrive, Link2, RefreshCw, Search, Terminal, Users, X } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, CircleAlert, Eye, FolderOpen, HardDrive, Link2, RefreshCw, Search, Terminal, Users, X } from 'lucide-react';
 import { request } from './api';
 import { Input } from './ShelfForm';
 import type { Snapshot } from './types';
@@ -7,161 +7,9 @@ import type { AgentCoverageEntry, DirectoryStatus, WorkbenchSnapshot } from './w
 import './shelf-workbench.css';
 
 // Labels and view structure are transplanted from Skill Shelf's desktop workbench.
-const labels: Record<string, string> = {
-  'desktop.workbench.openDirectory': '打开目录',
-  'desktop.workbench.inventory.title': '本机全局 Skill',
-  'desktop.workbench.inventory.total': '共 {count} 个',
-  'desktop.workbench.inventory.shared': '共享目录',
-  'desktop.workbench.inventory.sharedDescription':
-    '默认位于 ~/.agents/skills。支持共享目录的 Agent 直接读取，其他 Agent 通过链接或副本读取。',
-  'desktop.workbench.inventory.exclusive': '共享目录之外',
-  'desktop.workbench.inventory.exclusiveDescription':
-    '存放在各 Agent 独立目录中的 Skill，不计入共享覆盖率的分母。展开 Agent 可查看名称与位置。',
-  'desktop.workbench.inventory.counting':
-    '按 Skill 名称去重；本页不统计项目内的 Skill。',
-  'desktop.workbench.inventory.noSharedDirectory': '尚未发现共享目录。',
-  'desktop.workbench.agents.showLess': '收起更多 Agent',
-  'desktop.workbench.agents.showMore': '显示其余 {count} 个 Agent',
-  'desktop.workbench.agents.title': 'Agent 与 Skill 分布',
-  'desktop.workbench.agents.description':
-    '分别查看程序是否存在，以及磁盘上为它准备了哪些 Skill。点击一行查看详情。',
-  'desktop.workbench.agents.filters': '筛选 Agent',
-  'desktop.workbench.agents.filter.all': '全部',
-  'desktop.workbench.agents.filter.found': '找到程序',
-  'desktop.workbench.agents.filter.not-found': '可能残留',
-  'desktop.workbench.agents.filter.unverified': '未验证',
-  'desktop.workbench.agents.filter.focused': '已关注',
-  'desktop.workbench.agents.search': '搜索 Agent 或目录',
-  'desktop.workbench.agents.absent': '已关注但未发现程序或目录线索：{names}',
-  'desktop.workbench.agents.program': '程序检测',
-  'desktop.workbench.agents.shared': '共享 Skill 覆盖',
-  'desktop.workbench.agents.exclusive': '专属 Skill',
-  'desktop.workbench.agents.status.found': '已找到程序',
-  'desktop.workbench.agents.status.not-found': '未找到程序',
-  'desktop.workbench.agents.status.unverified': '程序未验证',
-  'desktop.workbench.agents.directRead': '直读共享目录',
-  'desktop.workbench.agents.localRead': '通过本地链接或副本',
-  'desktop.workbench.agents.complete': '共享 Skill 已全部覆盖',
-  'desktop.workbench.agents.missingCount': '缺少 {count} 个共享 Skill',
-  'desktop.workbench.agents.empty': '没有符合筛选条件的 Agent。',
-  'desktop.workbench.agents.limit':
-    '覆盖率依据目录与读取规则计算，不代表程序正在运行或 Skill 已通过执行验证。',
-  'desktop.workbench.agents.programEvidence': '程序检测依据',
-  'desktop.workbench.agents.evidence.command': '命令路径',
-  'desktop.workbench.agents.evidence.application': '应用路径',
-  'desktop.workbench.agents.explanation.found': '已找到命令或应用。',
-  'desktop.workbench.agents.explanation.not-found':
-    '找到了目录线索，但在本次检查的 PATH 或应用目录中未找到程序。可能已卸载，也可能安装在其他位置。',
-  'desktop.workbench.agents.explanation.unverified':
-    '目前仅有目录线索。尚未配置此 Agent 的程序检测规则，不能确认是否已安装。',
-  'desktop.workbench.agents.checkedCommands': '已查找命令：{commands}',
-  'desktop.workbench.agents.checkedApps': '已查找应用：{apps}',
-  'desktop.workbench.agents.directory': 'Agent 的 Skill 目录',
-  'desktop.workbench.agents.localKinds':
-    '已覆盖共享 Skill：{linked} 个链接，{direct} 个副本。',
-  'desktop.workbench.agents.noDirectory': '此 Skill 目录尚不存在。',
-  'desktop.workbench.agents.readsShared': '同时直接读取共享目录：{path}',
-  'desktop.workbench.agents.configPaths': '配置目录线索：{paths}',
-  'desktop.workbench.agents.skillLists': 'Skill 明细',
-  'desktop.workbench.agents.tab.missing': '缺少的共享 Skill',
-  'desktop.workbench.agents.tab.exclusive': '专属 Skill',
-  'desktop.workbench.agents.tab.local': '本地链接与副本',
-  'desktop.workbench.agents.tabDescription.missing':
-    '这些 Skill 存在于共享目录，但尚未通过此 Agent 的读取方式覆盖。',
-  'desktop.workbench.agents.tabDescription.exclusive':
-    '这些名称不在共享目录中，单独统计，不影响其他 Agent 的覆盖率。',
-  'desktop.workbench.agents.tabDescription.local':
-    '此 Agent 目录中实际可读取的 Skill，包含共享 Skill 的部署和专属 Skill。',
-  'desktop.workbench.agents.tabEmpty.missing': '没有缺少的共享 Skill。',
-  'desktop.workbench.agents.tabEmpty.exclusive': '没有共享目录之外的 Skill。',
-  'desktop.workbench.agents.tabEmpty.local': '此目录中没有可读取的 Skill。',
-  'desktop.workbench.agents.kind.symlink': '链接',
-  'desktop.workbench.agents.kind.copy': '副本 / 本地目录',
-  'desktop.workbench.files.title': '文件与链接检查',
-  'desktop.workbench.files.clear': '未发现文件访问问题',
-  'desktop.workbench.files.issueCount': '发现 {count} 项文件访问问题',
-  'desktop.workbench.files.method':
-    '检查链接目标和已识别 Skill 部署中的 SKILL.md；跳过其他普通目录。不执行 Skill，也不评估内容质量，同一路径仅检查一次。',
-  'desktop.workbench.files.valid': '可访问的链接目标 {count}',
-  'desktop.workbench.files.broken': '链接目标缺失 {count}',
-  'desktop.workbench.files.unreadable': '无法读取 {count}',
-  'desktop.workbench.files.missing': '缺少 SKILL.md {count}',
-  'desktop.workbench.files.status.broken': '链接目标不存在',
-  'desktop.workbench.files.status.inaccessible': '无法访问或读取',
-  'desktop.workbench.files.status.missing-document': '缺少 SKILL.md',
-  'desktop.workbench.files.fix.broken':
-    '检查链接指向的位置，恢复目标文件或重新安装该 Skill。',
-  'desktop.workbench.files.fix.inaccessible': '检查该目录或文件的访问权限。',
-  'desktop.workbench.files.fix.missing-document':
-    '该条目不是可读取的 Skill；检查目录中是否存在 SKILL.md。',
-  'desktop.workbench.programSearch.title': '程序检测范围',
-  'desktop.workbench.programSearch.login-shell':
-    '使用登录 Shell 与应用进程的 PATH 查找可执行文件；macOS 还检查系统与用户 Applications 目录。',
-  'desktop.workbench.programSearch.process':
-    '使用应用进程的 PATH 查找可执行文件；未取得登录 Shell 的 PATH，安装在其他位置的程序可能未被发现。',
-  'desktop.workbench.coverage.aria':
-    '{name}：可用 {available}/{total} 个共享 Skill，覆盖率 {percent}%',
-  'desktop.workbench.coverage.available': '共享可用 {available} / {total}',
-  'desktop.workbench.coverage.description':
-    '以 ~/.agents/skills 为覆盖率基准，Agent 专属 Skill 单独统计。',
-  'desktop.workbench.coverage.exclusive': '另有 {count} 个专属 Skill',
-  'desktop.workbench.coverage.sharedReads': '直读共享目录',
-  'desktop.workbench.coverage.noSharedSkills': '暂无共享 Skill',
-  'desktop.workbench.coverage.noSharedAria': '{name}：暂无共享 Skill',
-  'desktop.workbench.coverage.emptyDescription':
-    '为 Agent 安装 Skill 后，覆盖情况会显示在这里。',
-  'desktop.workbench.coverage.emptyTitle': '尚未检测到活跃 Agent',
-  'desktop.workbench.coverage.linkKinds': '{linked} 个链接 · {direct} 个副本',
-  'desktop.workbench.coverage.manage': '管理关注',
-  'desktop.workbench.coverage.more':
-    '还有 {agents} 个 Agent，分布在 {directories} 个目录',
-  'desktop.workbench.coverage.notDetected': '未检测到 {agents}{count}',
-  'desktop.workbench.coverage.notDetectedDescription':
-    '已关注，但尚未发现本地 Skill 目录',
-  'desktop.workbench.coverage.showLess': '收起其他目录',
-  'desktop.workbench.coverage.title': 'Agent 可用情况',
-  'desktop.workbench.description':
-    '查看共享与专属 Skill 的存放位置，核对 Agent 程序和本地目录。',
-  'desktop.workbench.errorTitle': '无法扫描本地工作区',
-  'desktop.workbench.eyebrow': '工作台 / 本机环境',
-  'desktop.workbench.health.aria':
-    '健康度 {percent}%，{valid} 个健康条目，{broken} 个失效，{inaccessible} 个需要人工检查',
-  'desktop.workbench.health.broken': '已失效',
-  'desktop.workbench.health.description':
-    '检查已安装的 Skill 是否可以正常访问。',
-  'desktop.workbench.health.direct': '本地文件夹',
-  'desktop.workbench.health.manual': '人工检查',
-  'desktop.workbench.health.noSymlinks': '未发现已安装的 Skill 条目',
-  'desktop.workbench.health.score': '健康度',
-  'desktop.workbench.health.title': 'Skill 健康状态',
-  'desktop.workbench.health.valid': '健康条目',
-  'desktop.workbench.issues.broken': '链接失效',
-  'desktop.workbench.issues.clear': '没有发现失效或无法访问的符号链接。',
-  'desktop.workbench.issues.count.one': '有 {count} 个链接需要处理。',
-  'desktop.workbench.issues.count.other': '有 {count} 个链接需要处理。',
-  'desktop.workbench.issues.inaccessible': '人工检查',
-  'desktop.workbench.issues.none': '本次扫描未发现链接问题。',
-  'desktop.workbench.issues.title': '诊断队列',
-  'desktop.workbench.lastScanned': '扫描于 {time}',
-  'desktop.workbench.localScan': '本机环境扫描',
-  'desktop.workbench.readOnly': '只读',
-  'desktop.workbench.refresh': '重新扫描',
-  'desktop.workbench.scanning': '正在扫描…',
-  'desktop.workbench.stats.agents': '活跃 Agent',
-  'desktop.workbench.stats.agentDirectories': 'Agent 目录',
-  'desktop.workbench.stats.description': '共享 Skill 与本机实际安装情况。',
-  'desktop.workbench.stats.focusedAgents': '关注的 Agent',
-  'desktop.workbench.stats.linked': '已关联 Skill',
-  'desktop.workbench.stats.skills': '共享 Skill',
-  'desktop.workbench.stats.title': 'Skill Stats',
-  'desktop.workbench.title': '本地 Skill 工作台',
-  'common.tryAgain': '重试',
-  'common.clearSearch': '清除搜索',
-};
-const number = (value: number) => value.toLocaleString('zh-CN');
-const t = (key: string, values: Record<string, string | number> = {}) =>
-  (labels[key] ?? key).replace(/\{([^}]+)\}/g, (_, name: string) => String(values[name] ?? `{${name}}`));
-const useI18n = () => ({ number, t });
+import { number, t, useI18n } from './desktop-ui';
+import { AgentAccessWorkspace } from './AgentAccessWorkspace';
+import './agent-access.css';
 const cn = (...values: Array<string | false | undefined>) => values.filter(Boolean).join(' ');
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -192,14 +40,18 @@ function directoryNote(status: DirectoryStatus | undefined, exists: boolean, sha
   return null;
 }
 
-export default function Workbench({ state, focusedAgents, onManageAgents, onRefresh, busy, onError }: {
+export default function Workbench({ state, focusedAgents, onManageAgents, onRefresh, busy, onError, onApplyingChange }: {
   state: Snapshot;
   focusedAgents: string[];
   onManageAgents: () => void;
   onRefresh: () => Promise<void>;
   busy: boolean;
   onError: (message: string) => void;
+  onApplyingChange: (applying: boolean) => void;
 }) {
+  const [accessAgentId, setAccessAgentId] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+  const entryFocus = useRef<HTMLElement | null>(null);
   const [snapshot, setSnapshot] = useState<WorkbenchSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -248,10 +100,10 @@ export default function Workbench({ state, focusedAgents, onManageAgents, onRefr
     try { await request('/workbench/open-directory', 'POST', { id }); }
     catch (caught) { errorCallback.current(errorMessage(caught)); }
   }
-  const scanning = loading || refreshing || busy;
+  const scanning = loading || refreshing || busy || applying;
   const scannedTime = snapshot ? new Date(snapshot.scannedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '';
   return <section className="workbench-workspace" aria-label={t('desktop.workbench.title')} aria-busy={scanning}>
-    <header className="workbench-page-header" data-slot="page-header">
+    <header className="workbench-page-header" data-slot="page-header" hidden={Boolean(accessAgentId)}>
       <div data-slot="page-header-heading">
         <p data-slot="page-header-eyebrow">{t('desktop.workbench.eyebrow')}</p>
         <h1>{t('desktop.workbench.title')}</h1>
@@ -272,16 +124,23 @@ export default function Workbench({ state, focusedAgents, onManageAgents, onRefr
       {snapshot ? <small>当前显示上次成功扫描的结果。</small> : null}
       <Button disabled={scanning} onClick={() => void loadWorkbench()}>{t('common.tryAgain')}</Button>
     </div> : null}
-    {snapshot ? <div className={cn('workbench-board', scanning && 'is-refreshing')}>
+    {snapshot ? <div hidden={Boolean(accessAgentId)} className={cn('workbench-board', scanning && 'is-refreshing')}>
       {snapshot.scanWarnings?.length ? <details className="workbench-scan-warnings">
         <summary><CircleAlert />扫描有 {number(snapshot.scanWarnings.length)} 项提示</summary>
         <p>部分目录可能无法完整读取，以下统计仅包含本次可读取的结果。</p>
         <ul>{snapshot.scanWarnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
       </details> : null}
       <WorkbenchOverview snapshot={snapshot} onOpenDirectory={openDirectory} />
-      <AgentCoverageCard focusedAgents={focusedAgents} onManageAgents={onManageAgents} snapshot={snapshot} onOpenDirectory={openDirectory} />
+      <AgentCoverageCard focusedAgents={focusedAgents} onManageAgents={onManageAgents} snapshot={snapshot} onOpenAccess={id => {
+        entryFocus.current = document.activeElement as HTMLElement;
+        setAccessAgentId(id);
+      }} />
       <WorkbenchFileChecks snapshot={snapshot} onOpenDirectory={openDirectory} />
     </div> : null}
+    {snapshot && accessAgentId ? <AgentAccessWorkspace snapshot={snapshot} focusedAgents={focusedAgents} initialAgentId={accessAgentId}
+      onApplyingChange={value => { setApplying(value); onApplyingChange(value); }}
+      onBack={() => { setAccessAgentId(null); requestAnimationFrame(() => entryFocus.current?.focus()); }}
+      onChanged={async () => { await onRefresh(); await loadWorkbench(); }} onOpenDirectory={id => void openDirectory(id)} /> : null}
   </section>;
 }
 
@@ -449,20 +308,18 @@ type SkillTab = 'missing' | 'exclusive' | 'local'
 export function AgentCoverageCard({
   focusedAgents,
   onManageAgents,
-  onOpenDirectory,
+  onOpenAccess,
   snapshot,
 }: {
   focusedAgents: string[]
   onManageAgents: () => void
-  onOpenDirectory: (id: string) => void
+  onOpenAccess: (id: string) => void
   snapshot: WorkbenchSnapshot
 }) {
   const { number, t } = useI18n()
   const [filter, setFilter] = useState<AgentFilter>('all')
   const [query, setQuery] = useState('')
   const [showAll, setShowAll] = useState(false)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [skillTab, setSkillTab] = useState<SkillTab>('missing')
   const focused = useMemo(() => new Set(focusedAgents), [focusedAgents])
   const agents = useMemo(
     () =>
@@ -562,32 +419,16 @@ export function AgentCoverageCard({
         <span>Agent</span>
         <span>{t('desktop.workbench.agents.program')}</span>
         <span>{t('desktop.workbench.agents.shared')}</span>
-        <span>{t('desktop.workbench.agents.exclusive')}</span>
         <span />
       </div>
       <div className="workbench-agent-list">
         {(showAll ? visibleAgents : visibleAgents.slice(0, 6)).map((agent) => {
-          const expanded = expandedId === agent.id
           const missing = agent.missingSkillNames.length
           return (
-            <div
-              className={cn('workbench-agent', expanded && 'is-expanded')}
-              key={agent.id}
-            >
+            <div className="workbench-agent" key={agent.id}>
               <button
-                aria-controls={`agent-detail-${agent.id}`}
-                aria-expanded={expanded}
                 className="workbench-agent-row"
-                onClick={() => {
-                  setExpandedId(expanded ? null : agent.id)
-                  setSkillTab(
-                    missing
-                      ? 'missing'
-                      : agent.exclusiveSkills
-                        ? 'exclusive'
-                        : 'local'
-                  )
-                }}
+                onClick={() => onOpenAccess(agent.id)}
                 type="button"
               >
                 <span className="workbench-agent-name">
@@ -626,27 +467,19 @@ export function AgentCoverageCard({
                         : t('desktop.workbench.agents.complete')
                       : t('desktop.workbench.coverage.noSharedSkills')}
                   </small>
+                  {agent.exclusiveSkills > 0 ? (
+                    <small title={t('desktop.workbench.agents.exclusive')}>
+                      {t('desktop.workbench.agents.additionalLocal', {
+                        count: number(agent.exclusiveSkills),
+                      })}
+                    </small>
+                  ) : null}
                 </span>
-                <span
-                  className="workbench-agent-exclusive"
-                  data-label={t('desktop.workbench.agents.exclusive')}
-                >
-                  <span className="sr-only">
-                    {t('desktop.workbench.agents.exclusive')}{' '}
-                  </span>
-                  {number(agent.exclusiveSkills)}
+                <span className="workbench-agent-manage">
+                  {t('desktop.agentAccess.workspace.manage')}
+                  <ArrowUpRight />
                 </span>
-                <ChevronDown />
               </button>
-              {expanded ? (
-                <AgentDetail
-                  agent={agent}
-                  onOpenDirectory={onOpenDirectory}
-                  onSkillTabChange={setSkillTab}
-                  skillTab={skillTab}
-                  snapshot={snapshot}
-                />
-              ) : null}
             </div>
           )
         })}
@@ -671,7 +504,6 @@ export function AgentCoverageCard({
       ) : null}
       <footer className="workbench-agent-footnote">
         {t('desktop.workbench.agents.limit')}
-        <p>扫描范围为已知 Agent 的全局目录与已添加的全局自定义目录；不遍历整个磁盘，不统计项目内的 Skill，不执行 Agent 命令。</p>
         <details className="workbench-search-scope">
           <summary>{t('desktop.workbench.programSearch.title')}</summary>
           <p>
@@ -686,179 +518,6 @@ export function AgentCoverageCard({
   )
 }
 
-function AgentDetail({
-  agent,
-  onOpenDirectory,
-  onSkillTabChange,
-  skillTab,
-  snapshot,
-}: {
-  agent: AgentCoverageEntry
-  onOpenDirectory: (id: string) => void
-  onSkillTabChange: (tab: SkillTab) => void
-  skillTab: SkillTab
-  snapshot: WorkbenchSnapshot
-}) {
-  const { number, t } = useI18n()
-  const tabs: Array<{ key: SkillTab; count: number }> = [
-    { key: 'missing', count: agent.missingSkillNames.length },
-    { key: 'exclusive', count: agent.exclusiveSkills },
-    { key: 'local', count: agent.localSkills.length },
-  ]
-  const names =
-    skillTab === 'missing'
-      ? agent.missingSkillNames
-      : skillTab === 'exclusive'
-        ? agent.exclusiveSkillNames
-        : agent.localSkills.map((skill) => skill.name)
-  const issues = snapshot.symlinkHealth.issues.filter((issue) =>
-    issue.agentNames.includes(agent.name)
-  )
-  return (
-    <div className="workbench-agent-detail" id={`agent-detail-${agent.id}`}>
-      <div className="workbench-agent-evidence">
-        <div>
-          <h3>
-            <Terminal />
-            {t('desktop.workbench.agents.programEvidence')}
-          </h3>
-          {agent.program.evidence.length ? (
-            agent.program.evidence.map((evidence) => (
-              <div
-                className="workbench-evidence-path"
-                key={`${evidence.kind}:${evidence.path}`}
-              >
-                <span>
-                  {t(`desktop.workbench.agents.evidence.${evidence.kind}`)}
-                </span>
-                <code>{evidence.path}</code>
-              </div>
-            ))
-          ) : (
-            <p>
-              {agent.program.status === 'unverified' && (agent.program.commands.length || agent.program.applications.length)
-                ? '程序检测未能完成，无法确认是否已安装。请检查程序路径及相关目录的访问权限后重新扫描。'
-                : t(`desktop.workbench.agents.explanation.${agent.program.status}`)}
-            </p>
-          )}
-          {agent.program.commands.length ? (
-            <small>
-              {t('desktop.workbench.agents.checkedCommands', {
-                commands: agent.program.commands.join(', '),
-              })}
-            </small>
-          ) : null}
-          {agent.program.applications.length ? (
-            <small>
-              {t('desktop.workbench.agents.checkedApps', {
-                apps: agent.program.applications.join(', '),
-              })}
-            </small>
-          ) : null}
-        </div>
-        <div>
-          <h3>
-            <FolderOpen />
-            {t('desktop.workbench.agents.directory')}
-          </h3>
-          <div className="workbench-directory-path">
-            <code>{agent.path}</code>
-            <Button
-              disabled={!agent.directoryExists}
-              onClick={() => onOpenDirectory(agent.id)}
-              size="xs"
-              variant="outline"
-            >
-              <FolderOpen />
-              {t('desktop.workbench.openDirectory')}
-            </Button>
-          </div>
-          <p>
-            {!directoryNote(agent.directoryStatus, agent.directoryExists)
-              ? t('desktop.workbench.agents.localKinds', {
-                  linked: number(agent.linkedSkills),
-                  direct: number(agent.directSkills),
-                })
-              : directoryNote(agent.directoryStatus, agent.directoryExists)}
-          </p>
-          {agent.readsSharedDirectory ? (
-            <small>
-              {t('desktop.workbench.agents.readsShared', {
-                path: snapshot.sharedDirectory.path,
-              })}
-            </small>
-          ) : null}
-          {agent.configurationPaths.length ? (
-            <small>
-              {t('desktop.workbench.agents.configPaths', {
-                paths: agent.configurationPaths.join(', '),
-              })}
-            </small>
-          ) : null}
-        </div>
-      </div>
-      <div
-        className="workbench-skill-tabs"
-        aria-label={t('desktop.workbench.agents.skillLists')}
-      >
-        {tabs.map(({ key, count }) => (
-          <button
-            aria-pressed={skillTab === key}
-            key={key}
-            onClick={() => onSkillTabChange(key)}
-            type="button"
-          >
-            {t(`desktop.workbench.agents.tab.${key}`)}
-            <span>{number(count)}</span>
-          </button>
-        ))}
-      </div>
-      <p className="workbench-skill-list-note">
-        {t(`desktop.workbench.agents.tabDescription.${skillTab}`)}
-      </p>
-      {names.length ? (
-        <ul className="workbench-skill-names">
-          {names.map((name, index) => {
-            const local =
-              skillTab === 'local'
-                ? agent.localSkills[index]
-                : agent.localSkills.find((skill) => skill.name === name)
-            return (
-              <li key={local?.path ?? name}>
-                <strong>{name}</strong>
-                {local ? (
-                  <>
-                    <span>
-                      {t(`desktop.workbench.agents.kind.${local.kind}`)}
-                    </span>
-                    <code title={local.path}>{local.path}</code>
-                    {local.kind === 'symlink' && local.canonicalPath && local.canonicalPath !== local.path ? (
-                      <code title={local.canonicalPath}>目标：{local.canonicalPath}</code>
-                    ) : null}
-                  </>
-                ) : null}
-              </li>
-            )
-          })}
-        </ul>
-      ) : (
-        <p className="workbench-skill-empty">
-          {t(`desktop.workbench.agents.tabEmpty.${skillTab}`)}
-        </p>
-      )}
-      {issues.length ? (
-        <div className="workbench-agent-file-issues">
-          {issues.map((issue) => (
-            <p key={issue.path}>
-              <span>{t(`desktop.workbench.files.status.${issue.status}`)}</span>
-              <code>{issue.path}</code>
-            </p>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  )
-}
 
 function Block({
   width = '100%',

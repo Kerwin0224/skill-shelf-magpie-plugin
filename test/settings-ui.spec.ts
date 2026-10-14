@@ -124,7 +124,7 @@ test('Settings keeps desktop sections and user-facing copy while refreshing mode
   const baseline = (await inferenceCalls(page)).length;
   await page.goto('/');
   await openSettings(page, '通用');
-  await expect(page.locator('.settings-navigation button')).toHaveText(['通用', '外观', '快捷键', 'Skills 与 Agent', '云同步', '关于', '模型服务', '默认模型', 'AI 行为']);
+  await expect(page.locator('.settings-navigation button')).toHaveText(['通用', '外观', '快捷键', 'Skills 与 Agent', '同步', '关于', '模型服务', '默认模型', 'AI 行为']);
   for (const name of ['通用', '外观', '快捷键', 'Skills 与 Agent', '关于', '模型服务', '默认模型', 'AI 行为']) {
     await chooseSection(page, name);
     await expect(page.locator('.settings-content')).not.toContainText(/客户端相同|实际启用|真实|原版|占位|不会伪装|宿主适配|宿主生命周期|模拟地址|当前浏览器|插件接口|Magpie 源码|无后台推理|推理请求/);

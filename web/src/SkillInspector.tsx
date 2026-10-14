@@ -14,6 +14,7 @@ export type SkillInspectorProps = {
   focusedAgents?: string[];
   descriptions?: Record<string, AiAnnotation>;
   onClose: () => void;
+  removalAction?: ReactNode;
   onOpenAiSettings: () => void;
   onSaved?: (annotation: AiAnnotation) => void;
   onTags: (tags: string[]) => Promise<boolean>;
@@ -35,7 +36,7 @@ function Section({ title, icon, children }: { title: string; icon: ReactNode; ch
   return <section className="inspector-section"><h3>{icon}{title}</h3>{children}</section>;
 }
 
-export default function SkillInspector({ skill, state, busy, focusedAgents = [], onClose, onOpenAiSettings, onSaved, onTags, onFolder, onDeploy, onOpenFolder, onRemoveDeployment, onInstallation, renderFiles, updateAction, onRemove, onOpenSource }: SkillInspectorProps) {
+export default function SkillInspector({ skill, state, busy, focusedAgents = [], onClose, onOpenAiSettings, onSaved, onTags, onFolder, onDeploy, onOpenFolder, onRemoveDeployment, onInstallation, renderFiles, updateAction, onRemove, removalAction, onOpenSource }: SkillInspectorProps) {
   const [tab, setTab] = useState<'info' | 'files'>('info');
   const [tagDraft, setTagDraft] = useState('');
   const [showAllAgents, setShowAllAgents] = useState(false);
@@ -128,7 +129,7 @@ export default function SkillInspector({ skill, state, busy, focusedAgents = [],
         {managed && <><Section title="所属 Pack" icon={<Boxes />}><span data-slot="badge" className="inspector-badge is-secondary">{state.packs.find(pack => pack.id === managed.packId)?.name || managed.packId}</span></Section><section className="inspector-section deployments-section"><h3><Link2 />部署记录 <span>{managed.deployments.length}</span></h3>{managed.deployments.map(deployment => <div className="deployment-row" key={deployment.id}>{deployment.mode === 'copy' ? <Copy size={14} /> : <Link2 size={14} />}<div><strong>{deployment.mode === 'copy' ? '文件复制' : '软链接'}</strong><code>{deployment.targetPath}</code></div><ShelfButton size="icon-sm" variant="ghost" aria-label="移除部署" disabled={busy} onClick={() => onRemoveDeployment(deployment.id)}><Trash2 /></ShelfButton></div>)}{managed.deployments.length === 0 && <p>尚未添加到其他位置</p>}</section><Section title="最初导入来源" icon={<HardDrive />}><code className="inspector-path">{managed.sourcePath}</code></Section></>}
       </div>}
     </div>
-    {!managed && (updateAction || onRemove) && <div className="inspector-footer">{updateAction && <ShelfButton size="sm" aria-busy={Boolean(updateAction.running)} disabled={updateAction.disabled} onClick={updateAction.onClick}>{updateAction.running ? <LoaderCircle className="spin" /> : <RefreshCw />}{updateAction.label}</ShelfButton>}{onRemove && <ShelfButton size="sm" variant="ghost" onClick={onRemove}><Trash2 />移除</ShelfButton>}</div>}
+    {!managed && (updateAction || onRemove || removalAction) && <div className="inspector-footer">{updateAction && <ShelfButton size="sm" aria-busy={Boolean(updateAction.running)} disabled={updateAction.disabled} onClick={updateAction.onClick}>{updateAction.running ? <LoaderCircle className="spin" /> : <RefreshCw />}{updateAction.label}</ShelfButton>}{removalAction}{onRemove && <ShelfButton size="sm" variant="ghost" onClick={onRemove}><Trash2 />移除</ShelfButton>}</div>}
     <ShelfButton size="icon-sm" variant="ghost" className="inspector-close" aria-label="关闭" onClick={onClose}><X /></ShelfButton>
   </aside>;
 }

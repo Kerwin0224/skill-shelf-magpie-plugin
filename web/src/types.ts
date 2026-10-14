@@ -1,4 +1,6 @@
-export type Folder = { id: string; name: string; scopeId: string; parentId: string | null; color: string };
+export type PortableFinderOptions = { alignToGrid: boolean; groupBy: string; sortBy: string; sortDirection: 'ascending' | 'descending'; useGroups: boolean; viewMode: 'canvas' | 'list' | 'columns' };
+export type PortablePreferences = { language?: 'en' | 'zh-CN' | 'system'; theme?: Theme; density?: 'comfortable' | 'compact'; libraryViewMode?: 'canvas' | 'list' | 'columns'; defaultAgents?: string[]; focusedAgents?: string[]; sidebarCollapsed?: boolean };
+export type Folder = { id: string; name: string; scopeId: string; parentId: string | null; color: string; viewOptions?: PortableFinderOptions };
 export type Organization = { folderId: string | null; tags: string[] };
 export type Skill = {
   id: string; name: string; slug: string; description: string; path: string;
@@ -14,7 +16,7 @@ export type Deployment = { id: string; targetPath: string; mode: 'copy' | 'symli
 export type ManagedSkill = Skill & {
   packId: string; sourcePath: string; importedAt: string; deployments: Deployment[];
 };
-export type Pack = { id: string; name: string; description: string; createdAt: string; updatedAt: string };
+export type Pack = { id: string; name: string; description: string; createdAt: string; updatedAt: string; sort?: 'manual' | 'name-asc' | 'name-desc'; viewOptions?: Record<string, PortableFinderOptions> };
 export type Root = { id: string; path: string; label: string; scopeId: string; preset: boolean; exists: boolean };
 export type Project = { id: string; name: string; path: string };
 export type Snapshot = {
@@ -22,6 +24,9 @@ export type Snapshot = {
   folders: Folder[]; organization: Record<string, Organization>; roots: Root[];
   projects: Project[]; scanWarnings: string[]; scannedAt: string; dataDir: string; homeDir: string;
   finderPositions?: Record<string, { x: number; y: number }>;
+  portablePreferences?: PortablePreferences;
+  rootViewOptions?: Record<string, PortableFinderOptions>;
+  portableDescriptions?: Record<string, Record<string, string>>;
 };
 export type ViewMode = 'grid' | 'list' | 'columns';
 export type Theme = 'light' | 'dark' | 'system';

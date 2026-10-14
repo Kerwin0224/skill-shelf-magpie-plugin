@@ -38,7 +38,7 @@ export type WorkbenchSnapshot = {
     agentCount: number;
     agents: Array<{ id: string; name: string }>;
     cliVersion: string;
-    source: 'plugin-presets';
+    source: 'skills';
   };
   scannedAt: string;
   sharedDirectory: { exists: boolean; path: string; skillNames: string[]; status?: DirectoryStatus };

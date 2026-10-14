@@ -3,12 +3,13 @@ import { ArrowDownToLine, ArrowUpFromLine, Cloud, FileJson, Loader2, RefreshCw, 
 import { request } from './api';
 import { Input } from './ShelfForm';
 import type { Snapshot } from './types';
+import { t } from './desktop-ui';
 import './sync-settings.css';
 
 type Props = { busy: boolean; onSynced: (snapshot: Snapshot) => void; onNotice: (text: string) => void; onError: (text: string) => void };
 type Connection = { url: string; username: string; hasPassword: boolean; passwordNeedsReentry: boolean };
 type Resolution = 'local' | 'incoming';
-type Preview = {
+export type Preview = {
   id: string; mode: 'import' | 'upload'; exportedAt: string; source?: { deviceName?: string };
   matched: number; skipped: number; added: number; changed: number;
   total?: number; unchanged?: number; localOnly?: number;
@@ -35,7 +36,7 @@ function syncError(error: unknown) {
   if (/Invalid sync (?:JSON )?document|Not a Skill Shelf metadata sync document/i.test(text)) return '同步文件无效，请重新导出后再试。';
   return text;
 }
-const fieldLabel = (field: string) => field.startsWith('translation:') ? `翻译 · ${field.slice(12)}` : ({ tags: '标签', folder: '分组层级', folderPath: '分组层级', files: '文件内容', name: '名称', description: '说明', color: '颜色' }[field] || '内容');
+const fieldLabel = (field: string) => field.startsWith('translation:') ? `翻译 · ${field.slice(12)}` : field.startsWith('description:') ? `描述 · ${field.slice(12)}` : ({ tags: '标签', folder: '分组层级', folderPath: '分组层级', files: '文件内容', name: '名称', description: '说明', color: '颜色', sort: '排序', viewOptions: '视图设置', language: '界面语言', theme: '主题', density: '界面密度', libraryViewMode: '默认视图', defaultAgents: '默认安装 Agent', focusedAgents: '关注 Agent', sidebarCollapsed: '侧栏收起状态' }[field] || '内容');
 const colorLabel = (color: unknown) => ({ '#ed6a4a': '橙色', '#cb8b24': '黄色', '#358b68': '绿色', '#3e77c7': '蓝色', '#8a63a8': '紫色', '#767672': '灰色' }[String(color)] || String(color));
 
 function conflictValue(field: string, raw: string) {
@@ -44,7 +45,7 @@ function conflictValue(field: string, raw: string) {
   try { value = JSON.parse(raw); } catch { /* Older previews can contain plain text. */ }
   if (value == null || value === '' || (Array.isArray(value) && !value.length)) return '空';
   if (Array.isArray(value)) return value.map(item => typeof item === 'object' && item !== null && 'name' in item ? `${String(item.name)}${'color' in item && item.color ? `（${colorLabel(item.color)}）` : ''}` : String(item)).join(field === 'tags' ? '、' : ' / ');
-  if (typeof value === 'object') return '内容有变化';
+  if (typeof value === 'object') return field === 'viewOptions' ? JSON.stringify(value, null, 2) : '内容有变化';
   if (field === 'color') return colorLabel(value);
   return String(value);
 }
@@ -69,7 +70,7 @@ function ConflictValue({ text, label }: { text: string; label: string }) {
   }}>{text}</p>;
 }
 
-function SyncPreviewDialog({ preview, origin, resolutions, unresolved, working, error, returnFocus, onClose, onChoose, onChooseAll, onApply }: {
+export function SyncPreviewDialog({ preview, origin, resolutions, unresolved, working, error, returnFocus, onClose, onChoose, onChooseAll, onApply }: {
   preview: Preview; origin: 'cloud' | 'file'; resolutions: Record<string, Resolution>; unresolved: number;
   working: boolean; error: string; returnFocus: HTMLElement | null; onClose: () => void;
   onChoose: (id: string, value: Resolution) => void; onChooseAll: (value: Resolution) => void; onApply: () => void;
@@ -237,9 +238,9 @@ export default function SyncSettings({ busy, onSynced, onNotice, onError }: Prop
   };
 
   return <div className="settings-page sync-settings" data-testid="settings-sync" aria-busy={working}>
-    <header className="settings-page-header"><h2>同步</h2></header>
-    <p className="settings-page-description">在不同电脑间同步 Packs Skill 与整理成果。</p>
-    <div className="sync-scope-note"><strong>同步 Packs Skill 与整理成果</strong><p>同步 Packs 中的 Skill 及其文件、Pack 归属、包内分组、标签与排列位置，以及已安装 Skill 的整理信息。原始安装文件、部署记录和本机路径保留在各自电脑。</p><p>已安装 Skill 按来源和名称匹配，项目 Skill 还会匹配项目名称。所有 Pack 中的 Skill 连同文件一起传输。</p></div>
+    <header className="settings-page-header"><h2>{t('desktop.sync.title')}</h2></header>
+    <p className="settings-page-description">{t('desktop.sync.description')}</p>
+    <div className="sync-scope-note"><strong>{t('desktop.sync.scopeTitle')}</strong><p>同步 Packs 中的 Skill 及其文件、Pack 归属、包内分组、标签与排序，以及已安装 Skill 的整理信息、自定义描述和应用偏好。原始安装文件、部署记录和本机路径保留在各自电脑；Magpie 模型与账号凭据不参与同步。</p><p>已安装 Skill 按来源和名称匹配，项目 Skill 还会匹配项目名称。所有 Pack 中的 Skill 连同文件一起传输。</p></div>
     <section className="settings-section"><h3>导出／导入</h3><div className="setting-rows sync-method"><FileJson aria-hidden="true" /><div><strong>通过文件迁移</strong><p>在一台电脑导出，在另一台电脑导入并预览。包含 Packs 中全部 Skill 及其文件，以及匹配的已安装 Skill 整理信息。</p></div><div className="sync-actions">
       <button type="button" className="secondary-button" disabled={working} onClick={exportFile}><ArrowUpFromLine />导出同步数据</button><button type="button" className="secondary-button" disabled={working || !!preview} onClick={event => { previewTrigger.current = event.currentTarget; fileInput.current?.click(); }}><ArrowDownToLine />导入同步数据</button>
     </div></div><input ref={fileInput} className="sync-file-input" type="file" aria-label="同步 JSON 文件" accept=".json,application/json" disabled={working || !!preview} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; importFile(file); }} /></section>

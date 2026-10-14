@@ -13,6 +13,7 @@ export type SkillDescriptionPanelProps = {
   disabled?: boolean;
   onOpenAiSettings: () => void;
   onSaved?: (annotation: AiAnnotation) => void;
+  customDescriptions?: Record<string, string>;
 };
 
 function DescriptionText({ text, empty }: { text: string; empty: boolean }) {
@@ -32,7 +33,7 @@ function DescriptionText({ text, empty }: { text: string; empty: boolean }) {
   return <div className="skill-description-body"><p id={id} ref={textRef} className={`${expanded ? '' : 'is-collapsed'}${empty ? ' is-empty' : ''}`}>{text}</p>{overflows && <ShelfButton className="skill-description-expand" aria-controls={id} aria-expanded={expanded} size="xs" variant="ghost" onClick={() => setExpanded(value => !value)}>{expanded ? '收起' : '展开描述'}{expanded ? <ChevronUp /> : <ChevronDown />}</ShelfButton>}</div>;
 }
 
-export default function SkillDescriptionPanel({ skill, disabled = false, onOpenAiSettings, onSaved }: SkillDescriptionPanelProps) {
+export default function SkillDescriptionPanel({ skill, disabled = false, onOpenAiSettings, onSaved, customDescriptions = {} }: SkillDescriptionPanelProps) {
   const preferences = useAiPreferences();
   const [selectedLanguage, setLanguage] = useState<string | null>(null);
   const language = selectedLanguage ?? preferences.targetLanguage;
@@ -51,12 +52,13 @@ export default function SkillDescriptionPanel({ skill, disabled = false, onOpenA
   const originalDescription = skill.description.trim();
   const translation = getSkillTranslation(translations, skill.id, language);
   const translationIsStale = Boolean(translation && (translation.stale || isLikelyIncompleteTranslation(originalDescription, translation.text)));
-  const hasTranslation = Boolean(translation && !translationIsStale && translation.text.trim() !== originalDescription);
+  const translatedText = translation && !translationIsStale ? translation.text : customDescriptions[language];
+  const hasTranslation = Boolean(translatedText && translatedText.trim() !== originalDescription);
   const showTranslation = mode === 'translation' && hasTranslation;
   const sourceMatchesTarget = isDescriptionClearlyInTargetLanguage(originalDescription, language);
   const writingModel = resolveAiModel(preferences.translationModel, status?.models || []);
   const aiAvailable = preferences.enabled && Boolean(status?.available) && Boolean(writingModel);
-  const provenance = showTranslation ? '只保存在这台设备的 Skill Shelf 中' : '来自 SKILL.md 的只读原文';
+  const provenance = showTranslation ? '保存在 Skill Shelf 中，可通过同步文件或 WebDAV 交换' : '来自 SKILL.md 的只读原文';
 
   useEffect(() => {
     const current = ++generation.current;
@@ -108,13 +110,13 @@ export default function SkillDescriptionPanel({ skill, disabled = false, onOpenA
   }
 
   return <section aria-labelledby={headingId} className="skill-description-card" data-testid="skill-description-panel">
-    <header className="skill-description-toolbar"><div className="skill-description-heading"><h3 id={headingId}>描述</h3><span className="skill-description-source" title={provenance}>{showTranslation ? `${languageName} · AI` : '原文'}</span></div>
+    <header className="skill-description-toolbar"><div className="skill-description-heading"><h3 id={headingId}>描述</h3><span className="skill-description-source" title={provenance}>{showTranslation ? `${languageName} · ${translation && !translationIsStale ? 'AI' : '同步描述'}` : '原文'}</span></div>
       {originalDescription && <div className="skill-description-actions">
         {translating ? <ShelfButton disabled size="xs" variant="ghost"><LoaderCircle className="spin" />正在翻译…</ShelfButton> : hasTranslation ? <ShelfButton size="xs" variant="ghost" onClick={() => setMode(showTranslation ? 'original' : 'translation')}>{showTranslation ? '查看原文' : '查看译文'}</ShelfButton> : !sourceMatchesTarget ? <ShelfButton size="xs" variant="ghost" disabled={loading || disabled} onClick={() => void translateDescription()}><Languages />{aiAvailable ? `翻译为${languageName}` : '设置翻译'}</ShelfButton> : null}
         <DropdownMenu.Root modal={false}><DropdownMenu.Trigger asChild><ShelfButton size="xs" variant="ghost" aria-label="翻译选项" className={`skill-description-options${sourceMatchesTarget && !hasTranslation ? ' has-language' : ''}`} disabled={loading || disabled || translating}>{sourceMatchesTarget && !hasTranslation ? languageName : null}<ChevronDown /></ShelfButton></DropdownMenu.Trigger><DropdownMenu.Content align="end" className="skill-translation-menu"><DropdownMenu.Label>翻译目标语言</DropdownMenu.Label><DropdownMenu.RadioGroup value={language} onValueChange={value => { setLanguage(value); setMode('translation'); setError(''); }}>{aiLanguages.map(([id, label]) => <DropdownMenu.RadioItem key={id} value={id}>{label}</DropdownMenu.RadioItem>)}</DropdownMenu.RadioGroup><DropdownMenu.Separator />{(translation || sourceMatchesTarget) && <DropdownMenu.Item disabled={disabled || (!aiAvailable && !sourceMatchesTarget)} onSelect={() => void translateDescription(true)}><RotateCw />{sourceMatchesTarget ? '保存本地副本' : '重新翻译'}</DropdownMenu.Item>}<DropdownMenu.Item onSelect={onOpenAiSettings}><Settings2 />翻译设置</DropdownMenu.Item><p className="skill-translation-menu-note">{provenance}</p></DropdownMenu.Content></DropdownMenu.Root>
       </div>}
     </header>
-    <DescriptionText key={`${skill.id}:${language}:${showTranslation ? 'translation' : 'original'}`} empty={!originalDescription} text={showTranslation ? translation!.text : originalDescription || '这个 Skill 没有声明描述。'} />
+    <DescriptionText key={`${skill.id}:${language}:${showTranslation ? 'translation' : 'original'}`} empty={!originalDescription && !showTranslation} text={showTranslation ? translatedText! : originalDescription || '这个 Skill 没有声明描述。'} />
     {translationIsStale && !translating && <p className="skill-translation-stale" role="status">已保存的译文需要更新，可重新翻译。</p>}
     {error && <div className="skill-description-error" role="alert"><span>{error}</span><ShelfButton size="xs" variant="ghost" onClick={onOpenAiSettings}>翻译设置</ShelfButton><ShelfButton size="xs" variant="ghost" disabled={translating} onClick={() => loading || !status ? setRevision(value => value + 1) : void translateDescription(true)}>重试</ShelfButton></div>}
   </section>;
