@@ -1,2 +1,3 @@
-export const VERSION = '0.1.1';
+export const VERSION = '0.1.14';
+export const DESKTOP_BASELINE = '0.1.14';
 export const USER_AGENT = `skill-shelf/${VERSION}`;
