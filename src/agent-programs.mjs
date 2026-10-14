@@ -1,0 +1,38 @@
+const AGENT_PROGRAMS = {
+  amp: { commands: ["amp"] },
+  antigravity: { commands: ["antigravity"], apps: ["Antigravity"] },
+  "antigravity-cli": { commands: ["agy"] },
+  "autohand-code": { commands: ["autohand"] },
+  "claude-code": { commands: ["claude"] },
+  openclaw: { commands: ["openclaw", "clawdbot", "moltbot"] },
+  codex: { commands: ["codex"], apps: ["Codex"] },
+  "command-code": { commands: ["command-code"] },
+  crush: { commands: ["crush"] },
+  cursor: { commands: ["cursor", "cursor-agent"], apps: ["Cursor"] },
+  deepagents: { commands: ["deepagents"] },
+  devin: { commands: ["devin"] },
+  dexto: { commands: ["dexto"] },
+  droid: { commands: ["droid"] },
+  "gemini-cli": { commands: ["gemini"] },
+  "github-copilot": { commands: ["copilot"] },
+  goose: { commands: ["goose"], apps: ["Goose"] },
+  "hermes-agent": { commands: ["hermes"] },
+  "kimi-code-cli": { commands: ["kimi"] },
+  "kiro-cli": { commands: ["kiro-cli"] },
+  "minimax-code": { apps: ["MiniMax Code"] },
+  "mistral-vibe": { commands: ["vibe"] },
+  mux: { commands: ["mux"], apps: ["Mux"] },
+  opencode: { commands: ["opencode"], apps: ["OpenCode"] },
+  openhands: { commands: ["openhands"] },
+  pi: { commands: ["pi"] },
+  "qwen-code": { commands: ["qwen"] },
+  trae: { commands: ["trae"], apps: ["Trae"] },
+  "trae-cn": { apps: ["Trae CN"] },
+  warp: { apps: ["Warp"] },
+  windsurf: { commands: ["windsurf"], apps: ["Windsurf"] },
+  zed: { commands: ["zed"], apps: ["Zed"] },
+  zcode: { apps: ["ZCode"] }
+};
+export {
+  AGENT_PROGRAMS
+};

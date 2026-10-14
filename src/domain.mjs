@@ -4,6 +4,7 @@ import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { parse as parseYaml } from 'yaml';
 import { scanWorkbench, workbenchDirectory } from './workbench.mjs';
+import { getAgentRegistry, getAgentInstallRegistry } from './agent-registry.mjs';
 
 const FILE_LIMIT = 4 * 1024 * 1024;
 const TOTAL_LIMIT = 16 * 1024 * 1024;
@@ -362,6 +363,8 @@ export class ShelfService {
       packs: this.state.packs, folders: this.state.folders, organization: this.state.organization, finderPositions: this.state.finderPositions,
       roots: this.roots, projects: this.state.projects, scanWarnings: this.scanWarnings,
       scannedAt: this.scannedAt, dataDir: this.dataDir, homeDir: this.homeDir,
+      portablePreferences: this.state.portablePreferences ?? {}, rootViewOptions: this.state.rootViewOptions ?? {},
+      portableDescriptions: this.state.portableDescriptions ?? {},
     });
   }
 
@@ -415,6 +418,11 @@ export class ShelfService {
       : path.join(this.homeDir, '.agents', '.skill-lock.json');
     const sourceUrls = new Map([['global', await trackedSourceUrls(globalLock)], ...await Promise.all(this.state.projects.map(async project => [`project:${project.id}`, await trackedSourceUrls(path.join(project.path, 'skills-lock.json'))]))]);
     const roots = PRESETS.map(([label, relative]) => ({ id: `preset-${slug(label)}`, path: path.join(this.homeDir, relative), label, scopeId: 'global', preset: true }));
+    for (const agent of getAgentRegistry({ homeDir: this.homeDir })) {
+      for (const [index, directory] of agent.skillDirectories.entries()) {
+        if (!roots.some(root => root.path === directory)) roots.push({ id: `preset-${agent.id}-${index}`, path: directory, label: agent.name, scopeId: 'global', preset: true });
+      }
+    }
     roots.push({ id: 'preset-magpie', path: path.join(this.magpieDir, 'library', 'skills'), label: 'Magpie', scopeId: 'global', preset: true });
     roots.push(...this.state.customRoots);
     for (const project of this.state.projects) {
@@ -422,6 +430,10 @@ export class ShelfService {
         roots.push({ id: `project-${project.id}-${slug(label)}`, path: path.join(project.path, relative), label, scopeId: `project:${project.id}`, preset: true });
       }
       roots.push({ id: `project-${project.id}-opencode`, path: path.join(project.path, '.opencode/skills'), label: 'OpenCode', scopeId: `project:${project.id}`, preset: true });
+      for (const agent of getAgentInstallRegistry()) {
+        const directory = path.join(project.path, agent.projectSkillDirectory);
+        if (!roots.some(root => root.scopeId === `project:${project.id}` && root.path === directory)) roots.push({ id: `project-${project.id}-${agent.id}`, path: directory, label: agent.name, scopeId: `project:${project.id}`, preset: true });
+      }
     }
     const found = new Map();
     const warnings = [];

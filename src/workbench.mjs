@@ -2,24 +2,9 @@ import fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
+import { getAgentRegistry, getUniversalInstallTarget, AGENT_REGISTRY_SOURCE } from './agent-registry.mjs';
+import { AGENT_PROGRAMS } from './agent-programs.mjs';
 
-// The plugin's scan presets, not a claim that the skills CLI is installed.
-const PRESETS = [
-  ['claude-code', 'Claude Code', '.claude/skills', ['claude'], []],
-  ['codex', 'Codex', '.codex/skills', ['codex'], ['Codex']],
-  ['cursor', 'Cursor', '.cursor/skills', ['cursor', 'cursor-agent'], ['Cursor']],
-  ['gemini-cli', 'Gemini CLI', '.gemini/skills', ['gemini'], []],
-  ['opencode', 'OpenCode', '.config/opencode/skills', ['opencode'], ['OpenCode']],
-  ['github-copilot', 'GitHub Copilot', '.copilot/skills', ['copilot'], []],
-  ['windsurf', 'Windsurf', '.codeium/windsurf/skills', ['windsurf'], ['Windsurf']],
-  ['continue', 'Continue', '.continue/skills', [], []],
-  ['cline', 'Cline', '.cline/skills', [], []],
-  ['goose', 'Goose', '.config/goose/skills', ['goose'], ['Goose']],
-  ['amp', 'Amp', '.config/amp/skills', ['amp'], []],
-  ['pi', 'Pi', '.pi/agent/skills', ['pi'], []],
-  ['roo', 'Roo Code', '.roo/skills', [], []],
-];
-const SHARED_READERS = new Set(['amp', 'cline', 'codex', 'cursor', 'gemini-cli', 'github-copilot', 'opencode']);
 const MAX_ENTRIES = 10000;
 const DOCUMENT_LIMIT = 4 * 1024 * 1024;
 const TOTAL_BYTES = 16 * 1024 * 1024;
@@ -32,11 +17,13 @@ const error = (status, message) => Object.assign(new Error(message), { status })
 const emptyScan = () => ({ skills: [], broken: 0, direct: 0, inaccessible: 0, missingDocuments: 0, valid: 0, issues: [] });
 const sortNames = names => [...names].sort((a, b) => a.localeCompare(b));
 
-export function workbenchRegistry({ homeDir, magpieDir, customRoots = [] }) {
-  const presets = PRESETS.map(([id, name, relative, commands, applications]) => ({
-    id, name, path: path.join(homeDir, relative),
-    configurationPaths: [path.dirname(path.join(homeDir, relative))],
-    commands, applications, readsSharedDirectory: SHARED_READERS.has(id),
+export function workbenchRegistry({ homeDir, magpieDir, customRoots = [], environment = process.env }) {
+  const universal = getUniversalInstallTarget();
+  const sharedReaders = new Set([...universal.agentIds, ...universal.hiddenAgentIds]);
+  const presets = getAgentRegistry({ homeDir, environment }).map(agent => ({
+    ...agent, path: agent.skillDirectories[0], configurationPaths: agent.detectionPaths,
+    commands: AGENT_PROGRAMS[agent.id]?.commands ?? [], applications: AGENT_PROGRAMS[agent.id]?.apps ?? [],
+    readsSharedDirectory: sharedReaders.has(agent.id),
   }));
   return [
     ...presets,
@@ -207,7 +194,7 @@ export async function scanWorkbench(options) {
     filesystem = fs, environment = process.env, platform = process.platform,
     applicationDirectories = platform === 'darwin' ? ['/Applications', path.join(homeDir, 'Applications')] : [],
   } = options;
-  const registry = workbenchRegistry({ homeDir, magpieDir, customRoots });
+  const registry = workbenchRegistry({ homeDir, magpieDir, customRoots, environment });
   const sharedPath = path.join(homeDir, '.agents/skills');
   const allSearchPaths = [...new Set((environment.PATH || '').split(path.delimiter).filter(value => path.isAbsolute(value)))];
   const searchPaths = allSearchPaths.slice(0, 128);
@@ -222,6 +209,9 @@ export async function scanWorkbench(options) {
   const coverage = [];
   let directoryAgents = 0;
   for (const agent of registry) {
+    for (const directory of agent.skillDirectories ?? []) {
+      if ((await directoryState(directory, filesystem)).exists) { agent.path = directory; break; }
+    }
     const state = await directoryState(agent.path, filesystem);
     const configurationPaths = [];
     for (const candidate of agent.configurationPaths) {
@@ -273,7 +263,7 @@ export async function scanWorkbench(options) {
   coverage.sort((a, b) => b.availableSkills - a.availableSkills || a.name.localeCompare(b.name));
   return {
     scannedAt: new Date().toISOString(),
-    registry: { agentCount: registry.length, agents: registry.map(({ id, name }) => ({ id, name })), source: 'plugin-presets', cliVersion: '' },
+    registry: { agentCount: registry.length, agents: registry.map(({ id, name }) => ({ id, name })), source: 'skills', cliVersion: AGENT_REGISTRY_SOURCE.version },
     sharedDirectory: { exists: sharedState.exists, path: sharedPath, skillNames: sortNames(sharedNames), status: sharedState.status },
     programSearch: { source: 'process', paths: searchPaths },
     stats: {
@@ -290,6 +280,9 @@ export async function workbenchDirectory(id, options) {
   const filesystem = options.filesystem || fs;
   const entry = id === 'shared' ? { path: path.join(options.homeDir, '.agents/skills') } : workbenchRegistry(options).find(agent => agent.id === id);
   if (!entry) throw error(404, 'Unknown Agent directory.');
+  for (const directory of entry.skillDirectories ?? []) {
+    if ((await directoryState(directory, filesystem)).exists) { entry.path = directory; break; }
+  }
   const state = await directoryState(entry.path, filesystem);
   if (state.status !== 'ready') throw error(state.status === 'inaccessible' ? 403 : 404, `Agent directory is ${state.status}.`);
   if (options.dataDir && inside(options.dataDir, state.canonicalPath)) throw error(403, 'Agent directory overlaps plugin storage.');
