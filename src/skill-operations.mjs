@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile, lstat, readdir, readlink, realpath, mkdtemp, rm, access } from 'node:fs/promises';
 import { dirname, join, relative, isAbsolute, posix } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { ShelfError } from './domain.mjs';
@@ -20,6 +20,34 @@ const fail = (message, status = 400) => { throw new ShelfError(status, message);
 const digest = value => createHash('sha256').update(value).digest('hex');
 const stripAnsi = value => value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
 const inside = (parent, child) => { const part = relative(parent, child); return part === '' || (part !== '..' && !part.startsWith('../') && !part.startsWith('..\\') && !isAbsolute(part)); };
+
+// A GitHub token is only needed to raise the API rate limit from 60 to 5000
+// requests per hour. The process environment is the first source, but it is
+// racy: every agent session spawns its own magpie process chain, and the one
+// that wins the workbench port may have been launched before a token ever
+// reached the launchd environment. Falling back to a plain file decouples token
+// delivery from process launch order entirely.
+const GITHUB_TOKEN_SHAPE = /^(gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{22,}|[a-f0-9]{40})$/;
+
+function githubTokenFiles(environment = process.env) {
+  const explicit = environment.SKILL_SHELF_GITHUB_TOKEN_FILE?.trim();
+  const fallback = environment.HOME?.trim() ? join(environment.HOME.trim(), '.config', 'magpie', 'github-token') : join(homedir(), '.config', 'magpie', 'github-token');
+  return [explicit, fallback].filter(value => typeof value === 'string' && value.length > 0);
+}
+
+export async function resolveGitHubToken(environment = process.env) {
+  const fromEnvironment = environment.GITHUB_TOKEN?.trim() || environment.GH_TOKEN?.trim();
+  if (fromEnvironment) return fromEnvironment;
+  for (const location of githubTokenFiles(environment)) {
+    try {
+      const token = (await readFile(location, 'utf8')).trim();
+      // Accept the shapes GitHub actually issues, so a stray unrelated file
+      // cannot silently degrade every request to the anonymous quota.
+      if (GITHUB_TOKEN_SHAPE.test(token)) return token;
+    } catch {}
+  }
+  return undefined;
+}
 
 export async function resolveSkillsCliPath() {
   const bundled = join(dirname(fileURLToPath(import.meta.url)), 'vendor', 'skills', 'bin', 'cli.mjs');
@@ -123,7 +151,13 @@ export async function fetchGitHubTreeWithGit(source, ref, { signal } = {}) {
     args.push(`https://github.com/${source}.git`, temporaryDirectory);
     const run = args => execFileAsync('git', args, { timeout: 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, signal, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
     await run(args);
-    const [root, directories] = await Promise.all([run(['-C', temporaryDirectory, 'rev-parse', 'HEAD^{tree}']), run(['-C', temporaryDirectory, 'ls-tree', '-r', '-d', 'HEAD'])]);
+    // rootSha must be the commit SHA, not the tree SHA. The API path reports the
+    // response's top-level `.sha`, which is a commit, and the lock file is
+    // written from that same value for a skill that sits at the repository root.
+    // Comparing a tree SHA against a stored commit SHA can never match, so the
+    // fallback used to report a permanent false "update available" whenever the
+    // API was unreachable and the skill had no subdirectory.
+    const [root, directories] = await Promise.all([run(['-C', temporaryDirectory, 'rev-parse', 'HEAD']), run(['-C', temporaryDirectory, 'ls-tree', '-r', '-d', 'HEAD'])]);
     return { status: 'available', rootSha: root.stdout.trim().toLowerCase(), tree: directories.stdout.split('\n').flatMap(line => {
       const match = line.match(/^\d+\s+tree\s+([0-9a-f]{40})\t(.+)$/i);
       return match ? [{ path: match[2], sha: match[1].toLowerCase(), type: 'tree' }] : [];
@@ -155,6 +189,15 @@ async function directoryFingerprint(location) {
   hash.update(JSON.stringify([location, root.dev, root.ino, root.mode, root.birthtimeMs]));
   await visit(location, 0);
   return hash.digest('hex');
+}
+
+// The fingerprint is what lets update() prove nothing moved between the scan
+// and the write. When it could not be computed at scan time, rescanning can
+// never help, so the message must say that instead of pointing the user at a
+// rescan loop that cannot possibly succeed.
+function fingerprintFailure(tracked) {
+  if (tracked.fingerprintError) return `This Skill cannot be validated for updating (${tracked.fingerprintError}). Reduce its file count below 10000, then scan again.`;
+  return 'The Skill changed after the scan. Scan for updates again.';
 }
 
 function operationResult(result, name, successMessage) {
@@ -191,7 +234,7 @@ export class SkillOperations {
     let result;
     try {
       const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
-      const token = this.environment.GITHUB_TOKEN ?? this.environment.GH_TOKEN;
+      const token = await resolveGitHubToken(this.environment);
       if (token) headers.Authorization = `Bearer ${token}`;
       const response = await this.fetcher(`https://api.github.com/repos/${source}/git/trees/${encodeURIComponent(ref)}?recursive=1`, { headers, redirect: 'error', signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(12_000)]) });
       if (response.status === 404) result = { status: 'unavailable' };
@@ -226,7 +269,7 @@ export class SkillOperations {
         const ref = entry.ref ?? 'HEAD';
         if (!source || !validSkillPath(entry.skillPath) || typeof entry.skillFolderHash !== 'string' || !/^[a-f0-9]{40}$/i.test(entry.skillFolderHash) || typeof ref !== 'string' || !ref || ref.length > 256 || /[\u0000-\u001f\u007f]/.test(ref)) { save(skill.id, unavailable('untracked', checkedAt)); continue; }
         const tracked = { skill, entry: { ...entry, source }, lock, fingerprint: null };
-        try { tracked.fingerprint = await directoryFingerprint(skill.path); } catch {}
+        try { tracked.fingerprint = await directoryFingerprint(skill.path); } catch (error) { tracked.fingerprintError = error instanceof ShelfError ? error.message : String(error); }
         this.tracked.set(skill.id, tracked);
         const key = `${source}\n${ref}`;
         if (!groups.has(key)) groups.set(key, []);
@@ -272,7 +315,7 @@ export class SkillOperations {
           if (!tracked || !current || this.checks.get(id)?.status !== 'update-available' || !SAFE_NAME.test(current.name)) fail('A selected Skill is not ready to update. Scan again.', 409);
           const lock = await readLock(tracked.lock.location);
           if (JSON.stringify(lock.skills[current.name]) !== JSON.stringify(tracked.lock.skills[current.name])) fail('The installation record changed. Scan for updates again.', 409);
-          if (!tracked.fingerprint || current.path !== tracked.skill.path || current.scopeId !== tracked.skill.scopeId || await directoryFingerprint(current.path) !== tracked.fingerprint) fail('The Skill changed after the scan. Scan for updates again.', 409);
+          if (!tracked.fingerprint || current.path !== tracked.skill.path || current.scopeId !== tracked.skill.scopeId || await directoryFingerprint(current.path) !== tracked.fingerprint) fail(fingerprintFailure(tracked), 409);
           const target = current.scopeId === 'global' ? { scope: 'global' } : { scope: 'project', projectId: current.scopeId.slice(8) };
           const cwd = this.workingDirectory(target, snapshot);
           const canonicalRoot = join(cwd, '.agents', 'skills');
@@ -298,7 +341,7 @@ export class SkillOperations {
           try {
             const lock = await readLock(plan.tracked.lock.location);
             if (this.controller.signal.aborted) fail('The Skills operation was cancelled.', 499);
-            if (JSON.stringify(lock.skills[plan.name]) !== JSON.stringify(plan.tracked.lock.skills[plan.name]) || await directoryFingerprint(plan.tracked.skill.path) !== plan.tracked.fingerprint) fail('The Skill changed after the scan. Scan for updates again.', 409);
+            if (JSON.stringify(lock.skills[plan.name]) !== JSON.stringify(plan.tracked.lock.skills[plan.name]) || await directoryFingerprint(plan.tracked.skill.path) !== plan.tracked.fingerprint) fail(fingerprintFailure(plan.tracked), 409);
             result = operationResult(await this.runner(plan.args, plan.cwd, { homeDir: this.service.homeDir, environment: this.environment, signal: this.controller.signal }), plan.name, 'Skill updated.');
           }
           catch { result = { name: plan.name, success: false, message: 'The Skill could not be updated. Scan again before retrying.', outputLines: [] }; }

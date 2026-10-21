@@ -36,6 +36,7 @@ function getScanState(skills: Skill[], updates: SkillsUpdateSnapshot | null, now
 function operationError(caught: unknown, fallback: string) {
   const message = caught instanceof Error ? caught.message : '';
   if (message.includes('independent installation copies')) return '这个 Skill 有多个独立安装副本，请先检查安装位置。';
+  if (message.includes('cannot be validated for updating')) return '这个 Skill 无法校验（文件数超过 10000 上限），重新扫描也不能解决。请先精简文件数量，或改用命令行手动更新。';
   if (/changed|Scan.*again|scan.*again|ready to update|before updating|Scan for updates/.test(message)) return 'Skill 或扫描结果已变化，请重新扫描后再更新。';
   if (message.includes('already running')) return '其他 Skill 操作正在进行，请稍后重试。';
   if (message.includes('project is no longer')) return '这个项目已不存在，请重新选择项目。';
