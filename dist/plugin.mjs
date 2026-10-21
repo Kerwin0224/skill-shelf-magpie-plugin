@@ -7362,14 +7362,14 @@ var require_dist = __commonJS({
 });
 
 // src/plugin.mjs
-import { homedir as homedir4 } from "node:os";
+import { homedir as homedir5 } from "node:os";
 import { dirname as dirname6, join as join8, resolve as resolve6 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 import { readFile as readFile7 } from "node:fs/promises";
 
 // src/runtime.mjs
 import { spawn as spawn2 } from "node:child_process";
-import { homedir as homedir3 } from "node:os";
+import { homedir as homedir4 } from "node:os";
 import { dirname as dirname5, resolve as resolve5, join as join7, isAbsolute as isAbsolute6 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { access as access2, link as link2, mkdir as mkdir5, readFile as readFile6, realpath as realpath6, rename as rename4, unlink as unlink2, writeFile as writeFile5 } from "node:fs/promises";
@@ -10278,7 +10278,7 @@ import { createRequire } from "node:module";
 import { createHash as createHash3, randomUUID as randomUUID4 } from "node:crypto";
 import { readFile, lstat as lstat2, readdir, readlink, realpath, mkdtemp, rm, access } from "node:fs/promises";
 import { dirname, join as join2, relative, isAbsolute as isAbsolute2, posix } from "node:path";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir as homedir2 } from "node:os";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 var SKILLS_CLI_VERSION2 = "1.5.23";
@@ -10298,6 +10298,24 @@ var inside3 = (parent, child) => {
   const part = relative(parent, child);
   return part === "" || part !== ".." && !part.startsWith("../") && !part.startsWith("..\\") && !isAbsolute2(part);
 };
+var GITHUB_TOKEN_SHAPE = /^(gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{22,}|[a-f0-9]{40})$/;
+function githubTokenFiles(environment = process.env) {
+  const explicit = environment.SKILL_SHELF_GITHUB_TOKEN_FILE?.trim();
+  const fallback = environment.HOME?.trim() ? join2(environment.HOME.trim(), ".config", "magpie", "github-token") : join2(homedir2(), ".config", "magpie", "github-token");
+  return [explicit, fallback].filter((value) => typeof value === "string" && value.length > 0);
+}
+async function resolveGitHubToken(environment = process.env) {
+  const fromEnvironment = environment.GITHUB_TOKEN?.trim() || environment.GH_TOKEN?.trim();
+  if (fromEnvironment) return fromEnvironment;
+  for (const location of githubTokenFiles(environment)) {
+    try {
+      const token = (await readFile(location, "utf8")).trim();
+      if (GITHUB_TOKEN_SHAPE.test(token)) return token;
+    } catch {
+    }
+  }
+  return void 0;
+}
 async function resolveSkillsCliPath() {
   const bundled = join2(dirname(fileURLToPath(import.meta.url)), "vendor", "skills", "bin", "cli.mjs");
   let bundledExists = false;
@@ -10424,7 +10442,7 @@ async function fetchGitHubTreeWithGit(source, ref, { signal } = {}) {
     args.push(`https://github.com/${source}.git`, temporaryDirectory);
     const run = (args2) => execFileAsync("git", args2, { timeout: 6e4, maxBuffer: 16 * 1024 * 1024, windowsHide: true, signal, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
     await run(args);
-    const [root, directories] = await Promise.all([run(["-C", temporaryDirectory, "rev-parse", "HEAD^{tree}"]), run(["-C", temporaryDirectory, "ls-tree", "-r", "-d", "HEAD"])]);
+    const [root, directories] = await Promise.all([run(["-C", temporaryDirectory, "rev-parse", "HEAD"]), run(["-C", temporaryDirectory, "ls-tree", "-r", "-d", "HEAD"])]);
     return { status: "available", rootSha: root.stdout.trim().toLowerCase(), tree: directories.stdout.split("\n").flatMap((line) => {
       const match = line.match(/^\d+\s+tree\s+([0-9a-f]{40})\t(.+)$/i);
       return match ? [{ path: match[2], sha: match[1].toLowerCase(), type: "tree" }] : [];
@@ -10462,6 +10480,10 @@ async function directoryFingerprint(location) {
   hash5.update(JSON.stringify([location, root.dev, root.ino, root.mode, root.birthtimeMs]));
   await visit(location, 0);
   return hash5.digest("hex");
+}
+function fingerprintFailure(tracked) {
+  if (tracked.fingerprintError) return `This Skill cannot be validated for updating (${tracked.fingerprintError}). Reduce its file count below 10000, then scan again.`;
+  return "The Skill changed after the scan. Scan for updates again.";
 }
 function operationResult(result, name, successMessage) {
   const outputLines = stripAnsi(`${result.stdout ?? ""}
@@ -10503,7 +10525,7 @@ var SkillOperations = class {
     let result;
     try {
       const headers3 = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
-      const token = this.environment.GITHUB_TOKEN ?? this.environment.GH_TOKEN;
+      const token = await resolveGitHubToken(this.environment);
       if (token) headers3.Authorization = `Bearer ${token}`;
       const response = await this.fetcher(`https://api.github.com/repos/${source}/git/trees/${encodeURIComponent(ref)}?recursive=1`, { headers: headers3, redirect: "error", signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(12e3)]) });
       if (response.status === 404) result = { status: "unavailable" };
@@ -10567,7 +10589,8 @@ var SkillOperations = class {
         const tracked = { skill, entry: { ...entry, source }, lock, fingerprint: null };
         try {
           tracked.fingerprint = await directoryFingerprint(skill.path);
-        } catch {
+        } catch (error2) {
+          tracked.fingerprintError = error2 instanceof ShelfError ? error2.message : String(error2);
         }
         this.tracked.set(skill.id, tracked);
         const key = `${source}
@@ -10618,7 +10641,7 @@ ${ref}`;
           if (!tracked || !current || this.checks.get(id)?.status !== "update-available" || !SAFE_NAME.test(current.name)) fail4("A selected Skill is not ready to update. Scan again.", 409);
           const lock = await readLock(tracked.lock.location);
           if (JSON.stringify(lock.skills[current.name]) !== JSON.stringify(tracked.lock.skills[current.name])) fail4("The installation record changed. Scan for updates again.", 409);
-          if (!tracked.fingerprint || current.path !== tracked.skill.path || current.scopeId !== tracked.skill.scopeId || await directoryFingerprint(current.path) !== tracked.fingerprint) fail4("The Skill changed after the scan. Scan for updates again.", 409);
+          if (!tracked.fingerprint || current.path !== tracked.skill.path || current.scopeId !== tracked.skill.scopeId || await directoryFingerprint(current.path) !== tracked.fingerprint) fail4(fingerprintFailure(tracked), 409);
           const target = current.scopeId === "global" ? { scope: "global" } : { scope: "project", projectId: current.scopeId.slice(8) };
           const cwd = this.workingDirectory(target, snapshot);
           const canonicalRoot = join2(cwd, ".agents", "skills");
@@ -10644,7 +10667,7 @@ ${ref}`;
           try {
             const lock = await readLock(plan.tracked.lock.location);
             if (this.controller.signal.aborted) fail4("The Skills operation was cancelled.", 499);
-            if (JSON.stringify(lock.skills[plan.name]) !== JSON.stringify(plan.tracked.lock.skills[plan.name]) || await directoryFingerprint(plan.tracked.skill.path) !== plan.tracked.fingerprint) fail4("The Skill changed after the scan. Scan for updates again.", 409);
+            if (JSON.stringify(lock.skills[plan.name]) !== JSON.stringify(plan.tracked.lock.skills[plan.name]) || await directoryFingerprint(plan.tracked.skill.path) !== plan.tracked.fingerprint) fail4(fingerprintFailure(plan.tracked), 409);
             result = operationResult(await this.runner(plan.args, plan.cwd, { homeDir: this.service.homeDir, environment: this.environment, signal: this.controller.signal }), plan.name, "Skill updated.");
           } catch {
             result = { name: plan.name, success: false, message: "The Skill could not be updated. Scan again before retrying.", outputLines: [] };
@@ -10686,7 +10709,7 @@ import {
   symlink,
   writeFile
 } from "node:fs/promises";
-import { homedir as homedir2 } from "node:os";
+import { homedir as homedir3 } from "node:os";
 import {
   basename,
   dirname as dirname2,
@@ -10872,7 +10895,7 @@ async function inspectParents(directory, guardedRoots) {
   return { fingerprint: hash2(JSON.stringify(facts)), canonical: canonical2 };
 }
 var AgentAccessService = class {
-  constructor(statePath, registry = getAgentRegistry(), sharedDirectory = join3(homedir2(), ".agents", "skills")) {
+  constructor(statePath, registry = getAgentRegistry(), sharedDirectory = join3(homedir3(), ".agents", "skills")) {
     this.statePath = statePath;
     this.registry = registry;
     this.sharedDirectory = resolve2(sharedDirectory);
@@ -14284,10 +14307,10 @@ async function startServer({ service, ai, assistant, skills, sync, access: acces
 // src/runtime.mjs
 var PRODUCT = "skill-shelf-magpie-plugin";
 var DEFAULT_PORT = 47822;
-function defaultMagpieDir(home = homedir3()) {
+function defaultMagpieDir(home = homedir4()) {
   return join7(process.env.XDG_CONFIG_HOME || join7(home, ".config"), "magpie");
 }
-function absolutePath(value, fallback, home = homedir3()) {
+function absolutePath(value, fallback, home = homedir4()) {
   const path6 = value === void 0 ? fallback : value;
   if (typeof path6 !== "string" || !path6.trim()) throw new Error("Expected an absolute directory path.");
   const expanded = path6 === "~" ? home : path6.startsWith("~/") ? join7(home, path6.slice(2)) : path6;
@@ -14332,7 +14355,7 @@ async function openOnce(url, dataDir) {
     await atomicWrite(stamp, JSON.stringify({ url, session, time: Date.now() }));
   }, ".browser-open.lock");
 }
-async function startWorkbench({ dataDir, homeDir = homedir3(), magpieDir, port = DEFAULT_PORT, dev = false, autoPort = !dev }) {
+async function startWorkbench({ dataDir, homeDir = homedir4(), magpieDir, port = DEFAULT_PORT, dev = false, autoPort = !dev }) {
   await mkdir5(dataDir, { recursive: true, mode: 448 });
   const service = new ShelfService({ dataDir, homeDir, magpieDir });
   await service.initialize();
@@ -14508,7 +14531,7 @@ async function connectWorkbench(settings) {
 // src/plugin.mjs
 var instance;
 async function SkillShelfPlugin(input = {}, options = {}) {
-  const homeDir = homedir4();
+  const homeDir = homedir5();
   const magpieDir = absolutePath(input.directory, defaultMagpieDir(homeDir), homeDir);
   const dataDir = absolutePath(options.dataDir, join8(magpieDir, "skill-shelf"), homeDir);
   const port = options.port ?? DEFAULT_PORT;
