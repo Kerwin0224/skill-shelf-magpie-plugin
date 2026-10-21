@@ -34,13 +34,22 @@ function getScanState(skills: Skill[], updates: SkillsUpdateSnapshot | null, now
 }
 
 function operationError(caught: unknown, fallback: string) {
-  const message = caught instanceof Error ? caught.message : '';
+  return localizeSkillError(caught instanceof Error ? caught.message : '') || fallback;
+}
+
+// The backend reports failures in English so logs stay greppable; the UI needs
+// them in the user's language. Keeping one mapping means a new backend reason
+// only has to be translated once, whichever path surfaces it.
+function localizeSkillError(message: string) {
+  if (!message) return '';
   if (message.includes('independent installation copies')) return '这个 Skill 有多个独立安装副本，请先检查安装位置。';
+  if (message.includes('cannot be validated for updating')) return '这个 Skill 无法校验（文件数超过 10000 上限），重新扫描也不能解决。请先精简文件数量，或改用命令行手动更新。';
+  if (message.includes('The Skills operation was cancelled')) return '操作已取消。';
   if (/changed|Scan.*again|scan.*again|ready to update|before updating|Scan for updates/.test(message)) return 'Skill 或扫描结果已变化，请重新扫描后再更新。';
   if (message.includes('already running')) return '其他 Skill 操作正在进行，请稍后重试。';
   if (message.includes('project is no longer')) return '这个项目已不存在，请重新选择项目。';
   if (message.includes('installer is missing')) return '无法启动安装工具，请重新安装插件后重试。';
-  return fallback;
+  return '';
 }
 
 export function useSkillsOperations(options: Options) {
@@ -126,7 +135,12 @@ export function useSkillsOperations(options: Options) {
       const result = await request<OperationResult>('/skills/update', 'POST', { skillIds: pendingUpdate.map(skill => skill.id), scanId: updates.scanId, confirmed: true });
       setUpdates(result.updates); onState(result.state);
       if (result.success) { setPendingUpdate(null); onNotice(`已更新 ${pendingUpdate.length} 个 Skill。`); }
-      else { const failed = result.results?.filter(item => !item.success).length ?? pendingUpdate.length; setPendingUpdate(null); onError(`${failed} 个 Skill 未能更新，请重新扫描后重试。`); }
+      else {
+        const failed = result.results?.filter(item => !item.success) ?? [];
+        const reason = failed.map(item => localizeSkillError(item.message) || item.message).filter(Boolean).join('；');
+        setPendingUpdate(null);
+        onError(reason ? `${failed.length} 个 Skill 未能更新：${reason}` : `${failed.length} 个 Skill 未能更新，请重新扫描后重试。`);
+      }
     } catch (caught) { setUpdateError(operationError(caught, '更新失败，请重新扫描后重试。')); }
     finally { actionLock.current = false; setAction(null); }
   }
