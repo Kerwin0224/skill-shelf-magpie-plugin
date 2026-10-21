@@ -344,7 +344,14 @@ export class SkillOperations {
             if (JSON.stringify(lock.skills[plan.name]) !== JSON.stringify(plan.tracked.lock.skills[plan.name]) || await directoryFingerprint(plan.tracked.skill.path) !== plan.tracked.fingerprint) fail(fingerprintFailure(plan.tracked), 409);
             result = operationResult(await this.runner(plan.args, plan.cwd, { homeDir: this.service.homeDir, environment: this.environment, signal: this.controller.signal }), plan.name, 'Skill updated.');
           }
-          catch { result = { name: plan.name, success: false, message: 'The Skill could not be updated. Scan again before retrying.', outputLines: [] }; }
+          catch (error) {
+            // A validation failure is the real reason and must reach the user, so
+            // carry it on the per-Skill result rather than the generic hint.
+            // Throwing here instead would discard the Skills already updated.
+            result = error instanceof ShelfError
+              ? { name: plan.name, success: false, message: error.message, outputLines: [] }
+              : { name: plan.name, success: false, message: 'The Skill could not be updated. Scan again before retrying.', outputLines: [] };
+          }
           results.push({ id: plan.id, ...result });
           this.completed += 1;
           this.checks.set(plan.id, { status: 'unchecked', reason: 'not-scanned' });

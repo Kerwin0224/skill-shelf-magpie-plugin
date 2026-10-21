@@ -10669,8 +10669,8 @@ ${ref}`;
             if (this.controller.signal.aborted) fail4("The Skills operation was cancelled.", 499);
             if (JSON.stringify(lock.skills[plan.name]) !== JSON.stringify(plan.tracked.lock.skills[plan.name]) || await directoryFingerprint(plan.tracked.skill.path) !== plan.tracked.fingerprint) fail4(fingerprintFailure(plan.tracked), 409);
             result = operationResult(await this.runner(plan.args, plan.cwd, { homeDir: this.service.homeDir, environment: this.environment, signal: this.controller.signal }), plan.name, "Skill updated.");
-          } catch {
-            result = { name: plan.name, success: false, message: "The Skill could not be updated. Scan again before retrying.", outputLines: [] };
+          } catch (error2) {
+            result = error2 instanceof ShelfError ? { name: plan.name, success: false, message: error2.message, outputLines: [] } : { name: plan.name, success: false, message: "The Skill could not be updated. Scan again before retrying.", outputLines: [] };
           }
           results.push({ id: plan.id, ...result });
           this.completed += 1;
