@@ -78,7 +78,7 @@ export default async function SkillShelfPlugin(input = {}, options = {}) {
       provider: 'skill-shelf',
       methods: [
         { label: '\u6253\u5f00 Skill Shelf', url: null },
-        { label: 'GitHub', url: 'https://github.com/voidrinz/skill-shelf-magpie-plugin' },
+        { label: 'GitHub', url: 'https://github.com/Kerwin0224/skill-shelf-magpie-plugin' },
       ].map(({ label, url }) => ({
         type: 'oauth',
         label,

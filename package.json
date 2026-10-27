@@ -17,6 +17,18 @@
     "LICENSE"
   ],
   "license": "MIT",
+  "author": {
+    "name": "Kerwin0224",
+    "url": "https://github.com/Kerwin0224"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kerwin0224/skill-shelf-magpie-plugin.git"
+  },
+  "homepage": "https://github.com/Kerwin0224/skill-shelf-magpie-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/Kerwin0224/skill-shelf-magpie-plugin/issues"
+  },
   "keywords": [
     "magpie-plugin",
     "opencode-plugin",

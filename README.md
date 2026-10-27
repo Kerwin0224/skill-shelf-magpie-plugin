@@ -26,7 +26,7 @@
 先安装 [Magpie](https://usemagpie.ai)。在 GitHub 仓库页面点击 **Code → Download ZIP**，下载并解压；也可以用 Git：
 
 ```sh
-git clone https://github.com/voidrinz/skill-shelf-magpie-plugin.git
+git clone https://github.com/Kerwin0224/skill-shelf-magpie-plugin.git
 ```
 
 仓库已包含构建好的插件。只是使用插件，不需要安装 Node.js，也不需要自己编译。
@@ -47,7 +47,7 @@ magpie plugin add /absolute/path/to/skill-shelf-magpie-plugin
 
 插件默认在后台启动，不会在 Magpie 启动、重启或重新加载插件时自动弹出网页。默认使用 `127.0.0.1:47822`；如果端口已被其他程序占用，会自动选择空闲端口，不需要你修改代码或手动设置。
 
-在 Magpie 的登录 / 添加订阅界面里找到**来自插件 → Skill Shelf**，选择**打开 Skill Shelf**即可打开网页，关闭后也可以通过这个入口重新打开；另一个 **GitHub** 按钮打开[插件仓库](https://github.com/voidrinz/skill-shelf-magpie-plugin)。设置从页面内进入，不另设打开入口。
+在 Magpie 的登录 / 添加订阅界面里找到**来自插件 → Skill Shelf**，选择**打开 Skill Shelf**即可打开网页，关闭后也可以通过这个入口重新打开；另一个 **GitHub** 按钮打开[插件仓库](https://github.com/Kerwin0224/skill-shelf-magpie-plugin)。设置从页面内进入，不另设打开入口。
 
 这两个入口复用了 Magpie 的插件登录按钮。Magpie 会先显示选择按钮，点击后仍会显示登录提示和验证码输入框，但 Skill Shelf 不需要登录、填写密钥或提交验证码。页面打开后请取消 Magpie 的登录窗口，不影响书架使用；增加 GitHub 入口不会消除这个宿主界面限制。
 
@@ -136,4 +136,4 @@ Magpie 目前没有专门的 Skills 工作台分类，因此界面会使用默�
 
 ---
 
-[MIT](LICENSE) © [Rin](https://github.com/voidrinz)
+[MIT](LICENSE) © [Rin](https://github.com/voidrinz) · 本仓库 fork 自 [voidrinz/skill-shelf-magpie-plugin](https://github.com/voidrinz/skill-shelf-magpie-plugin)，由 [Kerwin0224](https://github.com/Kerwin0224) 维护

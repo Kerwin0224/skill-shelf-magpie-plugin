@@ -122,7 +122,7 @@ test('built plugin exposes repeatable workbench and GitHub actions without creat
   assert.equal(state.skills.length, 2);
   for (const method of [0, 0, 1, 1]) {
     const action = await rpc('authorize', { provider: 'skill-shelf', method });
-    assert.equal(action.url, method === 0 ? `${base}/` : 'https://github.com/voidrinz/skill-shelf-magpie-plugin');
+    assert.equal(action.url, method === 0 ? `${base}/` : 'https://github.com/Kerwin0224/skill-shelf-magpie-plugin');
     assert.equal(action.method, 'code');
     assert.match(action.instructions, /\u4e0d\u662f\u4f9b\u5e94\u5546\u767b\u5f55/);
     assert.deepEqual(await rpc('callback', { session: action.session, code: 'not-a-login-code' }), { ok: false });

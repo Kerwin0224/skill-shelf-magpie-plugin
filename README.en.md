@@ -26,7 +26,7 @@ The plugin follows the **Skill Shelf desktop v0.1.14** core feature baseline, in
 Install [Magpie](https://usemagpie.ai) first. Download this repository using **Code → Download ZIP** on GitHub and extract it, or clone it:
 
 ```sh
-git clone https://github.com/voidrinz/skill-shelf-magpie-plugin.git
+git clone https://github.com/Kerwin0224/skill-shelf-magpie-plugin.git
 ```
 
 The repository includes the built plugin, so you do not need to install Node.js or run a build just to use it.
@@ -47,7 +47,7 @@ Replace the example path with the folder's actual location. Keep that folder in 
 
 The plugin starts quietly in the background by default, without opening a browser when Magpie starts, restarts or reloads the plugin. It prefers `127.0.0.1:47822`; if another application is using that port, it automatically chooses a free one. No source-code changes or manual port settings are needed.
 
-Find **From plugins → Skill Shelf** in Magpie's sign-in / add-subscription screen and choose **打开 Skill Shelf** (Open Skill Shelf) to open the page, or reopen it after closing it. The other button, **GitHub**, opens the [plugin repository](https://github.com/voidrinz/skill-shelf-magpie-plugin). Open settings from within the page; there is no separate settings launch button.
+Find **From plugins → Skill Shelf** in Magpie's sign-in / add-subscription screen and choose **打开 Skill Shelf** (Open Skill Shelf) to open the page, or reopen it after closing it. The other button, **GitHub**, opens the [plugin repository](https://github.com/Kerwin0224/skill-shelf-magpie-plugin). Open settings from within the page; there is no separate settings launch button.
 
 These entries reuse Magpie's plugin sign-in buttons. Magpie shows a method picker first, then still displays a sign-in prompt and verification-code field after either button is clicked. Skill Shelf does not require a login, API key or verification code. Cancel Magpie's sign-in dialog after the page opens; this does not close the workbench. Adding the GitHub entry does not remove this host UI limitation.
 
@@ -140,4 +140,4 @@ Closing the browser or removing the plugin does not automatically delete your da
 
 ---
 
-[MIT](LICENSE) © [Rin](https://github.com/voidrinz)
+[MIT](LICENSE) © [Rin](https://github.com/voidrinz) · forked from [voidrinz/skill-shelf-magpie-plugin](https://github.com/voidrinz/skill-shelf-magpie-plugin), maintained by [Kerwin0224](https://github.com/Kerwin0224)

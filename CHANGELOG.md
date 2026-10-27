@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (this fork)
+
+- Claim the fork's own identity: `package.json` now carries `author`, `repository`, `homepage` and `bugs` pointing at `Kerwin0224/skill-shelf-magpie-plugin`, and the in-plugin **GitHub** button (`src/plugin.mjs`) opens this repository instead of the upstream one.
+- README (zh/en) install commands and the signature line now name this fork and credit the upstream author.
+- Version stays at **0.1.14**: the number tracks the upstream desktop feature baseline recorded in `FEATURE_PARITY.md`, not the fork's own release numbering.
+
 ## 0.1.14 - 2026-10-15
 
 - Align the plugin's core feature baseline with Skill Shelf desktop 0.1.14; the matching version is not a claim of complete desktop parity.

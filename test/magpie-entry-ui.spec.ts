@@ -3,7 +3,7 @@ import { access, readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 
 const assets = process.env.MAGPIE_GUI_ASSETS || '/Users/laz/Coding/github/magpie/internal/gui/assets';
-const repository = 'https://github.com/voidrinz/skill-shelf-magpie-plugin';
+const repository = 'https://github.com/Kerwin0224/skill-shelf-magpie-plugin';
 const contentTypes: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png' };
 const methods = [
   { type: 'oauth', label: '\u6253\u5f00 Skill Shelf' },
