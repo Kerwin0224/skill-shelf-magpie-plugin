@@ -437,3 +437,22 @@ test('a symlinked file is verified by its target path, not treated as missing', 
   const result = await f.operations.update({ skillIds: [state.skills[0].id], scanId: updates.scanId, confirmed: true });
   assert.equal(result.success, true);
 });
+
+test('files the installer deliberately skips are not reported as missing', async t => {
+  const f = await fixture(t);
+  const skillDir = join(f.homeDir, '.agents', 'skills', 'alpha');
+  await mkdir(join(skillDir, '__pypackages__', 'lib'), { recursive: true });
+  await writeFile(join(skillDir, '__pypackages__', 'lib', 'leftover.py'), 'local tool state\n');
+  const blob = value => { const bytes = Buffer.from(value); return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex'); };
+  f.operations.fetcher = async () => response({ sha: NEW, truncated: false, tree: [
+    { path: 'skills', sha: 'c'.repeat(40), type: 'tree' },
+    { path: 'skills/alpha', sha: NEW, type: 'tree' },
+    { path: 'skills/alpha/SKILL.md', sha: blob(await readFile(join(skillDir, 'SKILL.md'), 'utf8')), type: 'blob' },
+    { path: 'skills/alpha/scripts/do-not-run.sh', sha: blob(await readFile(join(skillDir, 'scripts', 'do-not-run.sh'), 'utf8')), type: 'blob' },
+    { path: 'skills/alpha/metadata.json', sha: blob('{"source":"example/skills"}'), type: 'blob' },
+    { path: 'skills/alpha/__pycache__/thing.pyc', sha: blob('binary'), type: 'blob' },
+  ] });
+  const { state, updates } = await f.operations.scanUpdates();
+  const result = await f.operations.update({ skillIds: [state.skills[0].id], scanId: updates.scanId, confirmed: true });
+  assert.equal(result.success, true);
+});

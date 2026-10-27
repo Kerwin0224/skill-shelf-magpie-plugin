@@ -10501,10 +10501,13 @@ function gitBlobDigest(bytes) {
   return hash5.digest("hex");
 }
 var withLfEndings = (bytes) => bytes.includes(0) ? bytes : Buffer.from(bytes.toString("latin1").replaceAll("\r\n", "\n"), "latin1");
+var UNCOPIED_FILES = /* @__PURE__ */ new Set(["metadata.json", ".DS_Store"]);
+var UNCOPIED_DIRECTORIES = /* @__PURE__ */ new Set([".git", "__pycache__", "__pypackages__"]);
+var uncopied = (name) => UNCOPIED_FILES.has(name) || UNCOPIED_DIRECTORIES.has(name);
 async function verifyInstalledContent(root, tree, skillPath) {
   const folder = folderPath(skillPath);
   const prefix = folder ? `${folder}/` : "";
-  const blobs = tree.filter((item) => item.type === "blob" && item.path.startsWith(prefix));
+  const blobs = tree.filter((item) => item.type === "blob" && item.path.startsWith(prefix) && !item.path.slice(prefix.length).split("/").some(uncopied));
   if (!blobs.length) return null;
   const expected = new Map(blobs.map((item) => [item.path.slice(prefix.length), item.sha]));
   const problems = [];
@@ -10525,7 +10528,7 @@ async function verifyInstalledContent(root, tree, skillPath) {
   const extra = [];
   const visit = async (directory, base) => {
     for (const item of await readdir(directory, { withFileTypes: true })) {
-      if (item.name === ".git" || item.name === ".DS_Store") continue;
+      if (uncopied(item.name) || item.name === ".DS_Store") continue;
       const name = base ? `${base}/${item.name}` : item.name;
       if (item.isDirectory()) await visit(join2(directory, item.name), name);
       else if (item.isFile() && !expected.has(name)) extra.push(name);

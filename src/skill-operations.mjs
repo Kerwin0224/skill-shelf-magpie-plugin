@@ -230,10 +230,17 @@ const withLfEndings = bytes => bytes.includes(0) ? bytes : Buffer.from(bytes.toS
 // over stale files and never offers the update again. Re-reading the installed
 // files against the tree the scan already fetched is the only check that can
 // catch it; a mismatch rolls the version record back and reports a failure.
+// The installer leaves these out of the copy (cli isExcluded): metadata.json at
+// any depth, and .git / __pycache__ / __pypackages__ directories. A file the
+// source has but the Skill should not is not a failed update.
+const UNCOPIED_FILES = new Set(['metadata.json', '.DS_Store']);
+const UNCOPIED_DIRECTORIES = new Set(['.git', '__pycache__', '__pypackages__']);
+const uncopied = name => UNCOPIED_FILES.has(name) || UNCOPIED_DIRECTORIES.has(name);
+
 async function verifyInstalledContent(root, tree, skillPath) {
   const folder = folderPath(skillPath);
   const prefix = folder ? `${folder}/` : '';
-  const blobs = tree.filter(item => item.type === 'blob' && item.path.startsWith(prefix));
+  const blobs = tree.filter(item => item.type === 'blob' && item.path.startsWith(prefix) && !item.path.slice(prefix.length).split('/').some(uncopied));
   if (!blobs.length) return null;
   const expected = new Map(blobs.map(item => [item.path.slice(prefix.length), item.sha]));
   const problems = [];
@@ -250,7 +257,7 @@ async function verifyInstalledContent(root, tree, skillPath) {
   const extra = [];
   const visit = async (directory, base) => {
     for (const item of await readdir(directory, { withFileTypes: true })) {
-      if (item.name === '.git' || item.name === '.DS_Store') continue;
+      if (uncopied(item.name) || item.name === '.DS_Store') continue;
       const name = base ? `${base}/${item.name}` : item.name;
       if (item.isDirectory()) await visit(join(directory, item.name), name);
       else if (item.isFile() && !expected.has(name)) extra.push(name);
