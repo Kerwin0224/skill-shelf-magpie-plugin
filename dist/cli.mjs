@@ -10285,6 +10285,8 @@ var SOURCE_PATTERN = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i;
 var SAFE_NAME = /^[a-z0-9][a-z0-9._-]{0,159}$/i;
 var MAX_OUTPUT = 2 * 1024 * 1024;
 var SCAN_FRESH_MS = 30 * 60 * 1e3;
+var MAX_FINGERPRINT_ENTRIES = 5e4;
+var MAX_FINGERPRINT_BYTES = 256 * 1024 * 1024;
 var record4 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 var fail4 = (message, status = 400) => {
   throw new ShelfError(status, message);
@@ -10460,14 +10462,14 @@ async function directoryFingerprint(location) {
     if (depth > 32) fail4("The Skill directory is too deep to validate safely.", 409);
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
       if (entry.name === ".git") continue;
-      if (++count2 > 1e4) fail4("The Skill contains too many files to validate safely.", 409);
+      if (++count2 > MAX_FINGERPRINT_ENTRIES) fail4("The Skill contains too many files to validate safely.", 409);
       const file = join2(directory, entry.name), info = await lstat2(file);
       hash5.update(JSON.stringify([relative(location, file), info.dev, info.ino, info.mode, info.size, info.mtimeMs]));
       if (info.isSymbolicLink()) hash5.update(await readlink(file));
       else if (info.isDirectory()) await visit(file, depth + 1);
       else if (info.isFile()) {
         bytes += info.size;
-        if (bytes > 64 * 1024 * 1024) fail4("The Skill is too large to validate safely.", 409);
+        if (bytes > MAX_FINGERPRINT_BYTES) fail4("The Skill is too large to validate safely.", 409);
         hash5.update(await readFile(file));
       } else fail4("The Skill contains an unsupported file.", 409);
     }
@@ -10479,7 +10481,7 @@ async function directoryFingerprint(location) {
   return hash5.digest("hex");
 }
 function fingerprintFailure(tracked) {
-  if (tracked.fingerprintError) return `This Skill cannot be validated for updating (${tracked.fingerprintError}). Reduce its file count below 10000, then scan again.`;
+  if (tracked.fingerprintError) return `This Skill cannot be validated for updating (${tracked.fingerprintError}). Reduce its file count below ${MAX_FINGERPRINT_ENTRIES}, then scan again.`;
   return "The Skill changed after the scan. Scan for updates again.";
 }
 function operationResult(result, name, successMessage) {

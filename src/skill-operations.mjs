@@ -15,6 +15,10 @@ const SOURCE_PATTERN = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i;
 const SAFE_NAME = /^[a-z0-9][a-z0-9._-]{0,159}$/i;
 const MAX_OUTPUT = 2 * 1024 * 1024;
 const SCAN_FRESH_MS = 30 * 60 * 1000;
+// A Skill the size of a course deck (13k entries, 78 MB) is still safe to
+// fingerprint; the old 10k/64 MB caps silently blocked every update to it.
+const MAX_FINGERPRINT_ENTRIES = 50000;
+const MAX_FINGERPRINT_BYTES = 256 * 1024 * 1024;
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fail = (message, status = 400) => { throw new ShelfError(status, message); };
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -175,12 +179,12 @@ async function directoryFingerprint(location) {
     if (depth > 32) fail('The Skill directory is too deep to validate safely.', 409);
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
       if (entry.name === '.git') continue;
-      if (++count > 10000) fail('The Skill contains too many files to validate safely.', 409);
+      if (++count > MAX_FINGERPRINT_ENTRIES) fail('The Skill contains too many files to validate safely.', 409);
       const file = join(directory, entry.name), info = await lstat(file);
       hash.update(JSON.stringify([relative(location, file), info.dev, info.ino, info.mode, info.size, info.mtimeMs]));
       if (info.isSymbolicLink()) hash.update(await readlink(file));
       else if (info.isDirectory()) await visit(file, depth + 1);
-      else if (info.isFile()) { bytes += info.size; if (bytes > 64 * 1024 * 1024) fail('The Skill is too large to validate safely.', 409); hash.update(await readFile(file)); }
+      else if (info.isFile()) { bytes += info.size; if (bytes > MAX_FINGERPRINT_BYTES) fail('The Skill is too large to validate safely.', 409); hash.update(await readFile(file)); }
       else fail('The Skill contains an unsupported file.', 409);
     }
   };
@@ -196,7 +200,7 @@ async function directoryFingerprint(location) {
 // never help, so the message must say that instead of pointing the user at a
 // rescan loop that cannot possibly succeed.
 function fingerprintFailure(tracked) {
-  if (tracked.fingerprintError) return `This Skill cannot be validated for updating (${tracked.fingerprintError}). Reduce its file count below 10000, then scan again.`;
+  if (tracked.fingerprintError) return `This Skill cannot be validated for updating (${tracked.fingerprintError}). Reduce its file count below ${MAX_FINGERPRINT_ENTRIES}, then scan again.`;
   return 'The Skill changed after the scan. Scan for updates again.';
 }
 
