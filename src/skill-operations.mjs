@@ -239,9 +239,11 @@ async function verifyInstalledContent(root, tree, skillPath) {
   const problems = [];
   for (const [name, sha] of expected) {
     try {
-      const info = await lstat(join(root, name));
-      if (!info.isFile()) { problems.push(name); continue; }
-      const bytes = await readFile(join(root, name));
+      const file = join(root, name);
+      const info = await lstat(file);
+      // Git stores a symlink as a blob holding its target, so compare that.
+      const bytes = info.isSymbolicLink() ? Buffer.from(await readlink(file)) : info.isFile() ? await readFile(file) : null;
+      if (!bytes) { problems.push(name); continue; }
       if (gitBlobDigest(bytes) !== sha && gitBlobDigest(withLfEndings(bytes)) !== sha) problems.push(name);
     } catch { problems.push(name); }
   }

@@ -420,3 +420,20 @@ test('CRLF in a checked-out file is not mistaken for a stale file', async t => {
   const result = await f.operations.update({ skillIds: [state.skills[0].id], scanId: updates.scanId, confirmed: true });
   assert.equal(result.success, true);
 });
+
+test('a symlinked file is verified by its target path, not treated as missing', async t => {
+  const f = await fixture(t);
+  const skillDir = join(f.homeDir, '.agents', 'skills', 'alpha');
+  await symlink('SKILL.md', join(skillDir, 'ALIAS.md'));
+  const blob = value => { const bytes = Buffer.from(value); return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex'); };
+  f.operations.fetcher = async () => response({ sha: NEW, truncated: false, tree: [
+    { path: 'skills', sha: 'c'.repeat(40), type: 'tree' },
+    { path: 'skills/alpha', sha: NEW, type: 'tree' },
+    { path: 'skills/alpha/SKILL.md', sha: blob(await readFile(join(skillDir, 'SKILL.md'), 'utf8')), type: 'blob' },
+    { path: 'skills/alpha/scripts/do-not-run.sh', sha: blob(await readFile(join(skillDir, 'scripts', 'do-not-run.sh'), 'utf8')), type: 'blob' },
+    { path: 'skills/alpha/ALIAS.md', sha: blob('SKILL.md'), type: 'blob' },
+  ] });
+  const { state, updates } = await f.operations.scanUpdates();
+  const result = await f.operations.update({ skillIds: [state.skills[0].id], scanId: updates.scanId, confirmed: true });
+  assert.equal(result.success, true);
+});

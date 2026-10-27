@@ -10510,12 +10510,13 @@ async function verifyInstalledContent(root, tree, skillPath) {
   const problems = [];
   for (const [name, sha] of expected) {
     try {
-      const info = await lstat2(join2(root, name));
-      if (!info.isFile()) {
+      const file = join2(root, name);
+      const info = await lstat2(file);
+      const bytes = info.isSymbolicLink() ? Buffer.from(await readlink(file)) : info.isFile() ? await readFile(file) : null;
+      if (!bytes) {
         problems.push(name);
         continue;
       }
-      const bytes = await readFile(join2(root, name));
       if (gitBlobDigest(bytes) !== sha && gitBlobDigest(withLfEndings(bytes)) !== sha) problems.push(name);
     } catch {
       problems.push(name);
