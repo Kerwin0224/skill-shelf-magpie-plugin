@@ -1,7 +1,7 @@
 import { spawn, execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile, lstat, readdir, readlink, realpath, mkdtemp, rm, access } from 'node:fs/promises';
+import { readFile, writeFile, rename, lstat, readdir, readlink, realpath, mkdtemp, rm, access } from 'node:fs/promises';
 import { dirname, join, relative, isAbsolute, posix } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -202,9 +202,69 @@ function fingerprintFailure(tracked) {
 
 function operationResult(result, name, successMessage) {
   const outputLines = stripAnsi(`${result.stdout ?? ''}\n${result.stderr ?? ''}`).split('\n').map(line => line.trim()).filter(Boolean).slice(-24);
-  const success = result.code === 0 && !result.timedOut && !result.outputExceeded && !result.cancelled && !/Failed to install \d+|Installation failed/i.test(outputLines.join('\n'));
+  // The installer exits 0 when its clone dies mid-transfer, printing only
+  // "Failed to clone repository". Judging by the exit code alone turns that
+  // into a success whose files were never written.
+  const success = result.code === 0 && !result.timedOut && !result.outputExceeded && !result.cancelled && !/Failed to install \d+|Installation failed|Failed to clone/i.test(outputLines.join('\n'));
   const message = success ? successMessage : result.cancelled ? 'The Skills operation was cancelled.' : result.timedOut ? 'The Skills command timed out. Scan again before retrying.' : result.outputExceeded ? 'The Skills command produced too much output.' : 'The Skill could not be updated. Scan again before retrying.';
   return { ...(name ? { name } : {}), success, message, outputLines };
+}
+
+// Git stores text blobs with LF, so a checkout that honours `*.cmd text
+// eol=crlf` legitimately differs byte for byte. Hash the normalised form too
+// before calling a file wrong.
+function gitBlobDigest(bytes) {
+  const hash = createHash('sha1');
+  hash.update(`blob ${bytes.length}\0`);
+  hash.update(bytes);
+  return hash.digest('hex');
+}
+const withLfEndings = bytes => bytes.includes(0) ? bytes : Buffer.from(bytes.toString('latin1').replaceAll('\r\n', '\n'), 'latin1');
+
+// The installer cleans the directory and then writes the clone. When the write
+// fails it still advances the lock file, so the next scan sees the newest hash
+// over stale files and never offers the update again. Re-reading the installed
+// files against the tree the scan already fetched is the only check that can
+// catch it; a mismatch rolls the version record back and reports a failure.
+async function verifyInstalledContent(root, tree, skillPath) {
+  const folder = folderPath(skillPath);
+  const prefix = folder ? `${folder}/` : '';
+  const blobs = tree.filter(item => item.type === 'blob' && item.path.startsWith(prefix));
+  if (!blobs.length) return null;
+  const expected = new Map(blobs.map(item => [item.path.slice(prefix.length), item.sha]));
+  const problems = [];
+  for (const [name, sha] of expected) {
+    try {
+      const info = await lstat(join(root, name));
+      if (!info.isFile()) { problems.push(name); continue; }
+      const bytes = await readFile(join(root, name));
+      if (gitBlobDigest(bytes) !== sha && gitBlobDigest(withLfEndings(bytes)) !== sha) problems.push(name);
+    } catch { problems.push(name); }
+  }
+  const extra = [];
+  const visit = async (directory, base) => {
+    for (const item of await readdir(directory, { withFileTypes: true })) {
+      if (item.name === '.git' || item.name === '.DS_Store') continue;
+      const name = base ? `${base}/${item.name}` : item.name;
+      if (item.isDirectory()) await visit(join(directory, item.name), name);
+      else if (item.isFile() && !expected.has(name)) extra.push(name);
+    }
+  };
+  await visit(root, '');
+  return { problems, extra, checked: expected.size };
+}
+
+async function restoreLockEntry(location, name, entry) {
+  try {
+    const document = JSON.parse(await readFile(location, 'utf8'));
+    if (!record(document) || !record(document.skills)) return false;
+    if (entry === undefined) delete document.skills[name];
+    else document.skills[name] = entry;
+    const temporary = `${location}.${randomUUID()}.tmp`;
+    await writeFile(temporary, JSON.stringify(document, null, 2), { mode: 0o600 });
+    await rename(temporary, location);
+    return true;
+  } catch { return false; }
 }
 
 export class SkillOperations {
@@ -299,6 +359,20 @@ export class SkillOperations {
     return project.path;
   }
 
+  async verifyUpdate(plan, result) {
+    const entry = plan.tracked.entry;
+    const source = githubSource(entry);
+    if (entry.sourceType !== 'github' || !source) return result;
+    const tree = await this.remoteTree(source, typeof entry.ref === 'string' && entry.ref ? entry.ref : 'HEAD');
+    if (!tree || tree.status !== 'available' || tree.truncated) return result;
+    const verdict = await verifyInstalledContent(plan.tracked.skill.path, tree.tree, entry.skillPath);
+    if (!verdict || (verdict.problems.length === 0 && verdict.extra.length === 0)) return result;
+    const rolledBack = await restoreLockEntry(plan.tracked.lock.location, plan.name, plan.tracked.lock.skills[plan.name]);
+    const sample = [...verdict.problems, ...verdict.extra].slice(0, 3).join(', ');
+    const count = verdict.problems.length + verdict.extra.length;
+    return { ...result, success: false, message: `The installer reported success, but ${count} file(s) did not match the source (${sample}).${rolledBack ? ' The version record was rolled back, so the update is offered again.' : ' The version record could not be rolled back; check the Skill before trusting it.'}` };
+  }
+
   async update(input) {
     this.ensureIdle();
     if (!record(input) || input.confirmed !== true || !Array.isArray(input.skillIds) || !input.skillIds.length || input.skillIds.length > 1000 || !input.skillIds.every(id => typeof id === 'string') || input.scanId !== this.scanId || !this.scanId || this.now().getTime() - Date.parse(this.scannedAt) >= SCAN_FRESH_MS) fail('Scan for updates and confirm the selected Skills before updating.', 409);
@@ -343,6 +417,7 @@ export class SkillOperations {
             if (this.controller.signal.aborted) fail('The Skills operation was cancelled.', 499);
             if (JSON.stringify(lock.skills[plan.name]) !== JSON.stringify(plan.tracked.lock.skills[plan.name]) || await directoryFingerprint(plan.tracked.skill.path) !== plan.tracked.fingerprint) fail(fingerprintFailure(plan.tracked), 409);
             result = operationResult(await this.runner(plan.args, plan.cwd, { homeDir: this.service.homeDir, environment: this.environment, signal: this.controller.signal }), plan.name, 'Skill updated.');
+            if (result.success) result = await this.verifyUpdate(plan, result);
           }
           catch (error) {
             // A validation failure is the real reason and must reach the user, so

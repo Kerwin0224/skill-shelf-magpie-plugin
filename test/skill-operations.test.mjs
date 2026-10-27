@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, rename, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -364,4 +365,58 @@ test('CLI launcher bounds output and terminates timed-out commands', async t => 
   const preAborted = new AbortController(); preAborted.abort();
   const cancelled = await runSkillsCli([], f.homeDir, { signal: preAborted.signal, cliPath: 'must-not-spawn-this-missing-file' });
   assert.equal(cancelled.cancelled, true);
+});
+
+test('a clone that dies mid-transfer is a failed update even when the CLI exits zero', async t => {
+  const f = await fixture(t);
+  f.operations.runner = async () => ({ code: 0, stdout: 'Failed to clone repository\nfatal: early EOF', stderr: '', timedOut: false });
+  const { state, updates } = await f.operations.scanUpdates();
+  const result = await f.operations.update({ skillIds: [state.skills[0].id], scanId: updates.scanId, confirmed: true });
+  assert.equal(result.success, false);
+  assert.equal(result.results[0].success, false);
+});
+
+test('an update whose files never landed is a failure and rolls the version record back', async t => {
+  const f = await fixture(t);
+  const remoteSkill = '---\nname: alpha\ndescription: Example skill\n---\n# alpha\nupdated\n';
+  const remoteScript = '#!/bin/sh\nexit 99\n';
+  const blob = text => { const bytes = Buffer.from(text); return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex'); };
+  f.operations.fetcher = async () => response({ sha: NEW, truncated: false, tree: [
+    { path: 'skills', sha: 'c'.repeat(40), type: 'tree' },
+    { path: 'skills/alpha', sha: NEW, type: 'tree' },
+    { path: 'skills/alpha/SKILL.md', sha: blob(remoteSkill), type: 'blob' },
+    { path: 'skills/alpha/scripts/do-not-run.sh', sha: blob(remoteScript), type: 'blob' },
+  ] });
+  // The installer advanced the lock without writing the new files.
+  f.operations.runner = async () => {
+    const document = JSON.parse(await readFile(f.lockPath, 'utf8'));
+    document.skills.alpha.skillFolderHash = NEW;
+    await writeFile(f.lockPath, JSON.stringify(document));
+    return cliSuccess;
+  };
+  const { state, updates } = await f.operations.scanUpdates();
+  const result = await f.operations.update({ skillIds: [state.skills[0].id], scanId: updates.scanId, confirmed: true });
+  assert.equal(result.success, false);
+  assert.match(result.results[0].message, /did not match the source/);
+  const after = JSON.parse(await readFile(f.lockPath, 'utf8'));
+  assert.equal(after.skills.alpha.skillFolderHash, OLD);
+});
+
+test('CRLF in a checked-out file is not mistaken for a stale file', async t => {
+  const f = await fixture(t);
+  const skill = join(f.homeDir, '.agents', 'skills', 'alpha', 'SKILL.md');
+  const text = await readFile(skill, 'utf8');
+  await writeFile(skill, text.replaceAll('\n', '\r\n'));
+  const script = join(f.homeDir, '.agents', 'skills', 'alpha', 'scripts', 'do-not-run.sh');
+  const scriptText = await readFile(script, 'utf8');
+  const blob = value => { const bytes = Buffer.from(value); return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex'); };
+  f.operations.fetcher = async () => response({ sha: NEW, truncated: false, tree: [
+    { path: 'skills', sha: 'c'.repeat(40), type: 'tree' },
+    { path: 'skills/alpha', sha: NEW, type: 'tree' },
+    { path: 'skills/alpha/SKILL.md', sha: blob(text), type: 'blob' },
+    { path: 'skills/alpha/scripts/do-not-run.sh', sha: blob(scriptText), type: 'blob' },
+  ] });
+  const { state, updates } = await f.operations.scanUpdates();
+  const result = await f.operations.update({ skillIds: [state.skills[0].id], scanId: updates.scanId, confirmed: true });
+  assert.equal(result.success, true);
 });
